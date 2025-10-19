@@ -3,7 +3,6 @@ from fastapi import FastAPI, HTTPException, Depends
 from pydantic import BaseModel
 from typing import List, Optional
 import uuid
-import time
 from shop import *
 
 app = FastAPI(title="Shop API")
