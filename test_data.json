@@ -1,0 +1,41 @@
+{
+  "users": [
+    {"id": "u1", "email": "alice@test.com", "password": "123", "first_name": "Alice", "last_name": "Test", "address": "1 rue", "is_admin": false},
+    {"id": "u2", "email": "bob@test.com", "password": "456", "first_name": "Bob", "last_name": "Test", "address": "2 rue", "is_admin": true},
+    {"id": "u3", "email": "carol@test.com", "password": "789", "first_name": "Carol", "last_name": "Test", "address": "3 rue", "is_admin": false}
+  ],
+  "products": [
+    {"id": "p1", "name": "ProduitA", "description": "DescA", "price_cents": 1000, "stock_qty": 10, "active": true},
+    {"id": "p2", "name": "ProduitB", "description": "DescB", "price_cents": 2000, "stock_qty": 5, "active": true},
+    {"id": "p3", "name": "ProduitC", "description": "DescC", "price_cents": 500, "stock_qty": 20, "active": false}
+  ],
+  "carts": [
+  {"user_id": "u1", "items": [{"product_id": "p1", "quantity": 2}, {"product_id": "p2", "quantity": 1}]},
+  {"user_id": "u2", "items": [{"product_id": "p2", "quantity": 1}]},
+  {"user_id": "u3", "items": []}
+  ],
+  "orders": [
+    {"id": "o1", "user_id": "u1", "items": [{"product_id": "p1", "name": "ProduitA", "unit_price_cents": 1000, "quantity": 2}], "status": "CREE", "created_at": 1697700000},
+    {"id": "o2", "user_id": "u2", "items": [{"product_id": "p2", "name": "ProduitB", "unit_price_cents": 2000, "quantity": 1}], "status": "PAYEE", "created_at": 1697701000}
+  ],
+  "invoices": [
+    {"id": "inv1", "order_id": "o1", "user_id": "u1", "lines": [{"product_id": "p1", "name": "ProduitA", "unit_price_cents": 1000, "quantity": 2, "line_total_cents": 2000}], "total_cents": 2000, "issued_at": 1697700100},
+    {"id": "inv2", "order_id": "o2", "user_id": "u2", "lines": [{"product_id": "p2", "name": "ProduitB", "unit_price_cents": 2000, "quantity": 1, "line_total_cents": 2000}], "total_cents": 2000, "issued_at": 1697701100}
+  ],
+  "payments": [
+    {"id": "pay1", "order_id": "o1", "user_id": "u1", "amount_cents": 2000, "provider": "CB", "provider_ref": "ref123", "succeeded": true, "created_at": 1697700200},
+    {"id": "pay2", "order_id": "o2", "user_id": "u2", "amount_cents": 2000, "provider": "CB", "provider_ref": "ref456", "succeeded": false, "created_at": 1697701200}
+  ],
+  "deliveries": [
+    {"id": "del1", "order_id": "o1", "carrier": "POSTE", "tracking_number": "TRK-1234567890", "address": "1 rue", "status": "EN_COURS"},
+    {"id": "del2", "order_id": "o2", "carrier": "DHL", "tracking_number": "TRK-9876543210", "address": "2 rue", "status": "LIVREE"}
+  ],
+  "threads": [
+    {"id": "th1", "user_id": "u1", "order_id": "o1", "subject": "Problème commande", "messages": [], "closed": false},
+    {"id": "th2", "user_id": "u2", "order_id": "o2", "subject": "Livraison lente", "messages": [], "closed": true}
+  ],
+  "messages": [
+    {"id": "msg1", "thread_id": "th1", "author_user_id": "u1", "body": "Bonjour, j'ai un souci.", "created_at": 1697700300},
+    {"id": "msg2", "thread_id": "th2", "author_user_id": "u2", "body": "Ma commande est en retard.", "created_at": 1697700400}
+  ]
+}
