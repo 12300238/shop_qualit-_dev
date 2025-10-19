@@ -6,11 +6,6 @@ import uuid
 import time
 
 
-# =========================
-# ========== OrderStatus ======
-# =========================
-
-
 class OrderStatus(Enum):
     """Enum représentant les différents statuts possibles d'une commande.
 
