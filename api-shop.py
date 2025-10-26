@@ -4,10 +4,9 @@ from pydantic import BaseModel
 from typing import List, Optional
 import uuid
 from shop import *
+import os
 
 app = FastAPI(title="Shop API")
-
-import os
 
 # --- In-memory repositories and services ---
 users = UserRepository()
@@ -27,6 +26,7 @@ catalog_svc = CatalogService(products)
 cart_svc = CartService(carts, products)
 customer_svc = CustomerService(threads, users)
 
+
 # --- Chargement auto des données de test ---
 def load_test_data(json_path, users_repo, products_repo, carts_repo):
     from shop import PasswordHasher, User, Product
@@ -43,53 +43,6 @@ def load_test_data(json_path, users_repo, products_repo, carts_repo):
     for p in data.get('products', []):
         product = Product(**p)
         products_repo.add(product)
-    # Paniers
-    for c in data.get('carts', []):
-        cart = carts_repo.get_or_create(c['user_id'])
-        for item in c.get('items', []):
-            cart.add(products_repo.get(item['product_id']), item['quantity'])
-    # Commandes
-    if 'orders' in data:
-        from shop import Order, OrderItem, OrderStatus
-        for o in data['orders']:
-            o['items'] = [OrderItem(**oi) for oi in o['items']]
-            o['status'] = OrderStatus[o['status']]
-            orders.add(Order(**o))
-    # Factures
-    if 'invoices' in data:
-        from shop import Invoice, InvoiceLine
-        for inv in data['invoices']:
-            inv['lines'] = [InvoiceLine(**l) for l in inv['lines']]
-            invoices.add(Invoice(**inv))
-    # Paiements
-    if 'payments' in data:
-        from shop import Payment
-        for pay in data['payments']:
-            payments.add(Payment(**pay))
-    # Livraisons
-    if 'deliveries' in data:
-        from shop import Delivery
-        for d in data['deliveries']:
-            delivery = Delivery(**d)
-            # Optionnel: rattacher à la commande si id match
-            if 'order_id' in d:
-                ord = orders.get(d['order_id'])
-                if ord:
-                    ord.delivery = delivery
-            # Pas de repository dédié dans ce design, mais on pourrait en ajouter
-    # Threads
-    if 'threads' in data:
-        from shop import MessageThread
-        for th in data['threads']:
-            threads.add(MessageThread(**th))
-    # Messages
-    if 'messages' in data:
-        from shop import Message
-        for msg in data['messages']:
-            message = Message(**msg)
-            thread = threads.get(msg['thread_id'])
-            if thread:
-                thread.messages.append(message)
 
 # Charge les données au démarrage
 load_test_data(os.path.join(os.path.dirname(__file__), 'test_data.json'), users, products, carts)
@@ -175,6 +128,15 @@ def get_user(user_id: str):
         raise HTTPException(status_code=404, detail="User not found")
     return u
 
+@app.get("/users_id/{email}")
+def get_user_by_email(email: str):
+    """Récupère les infos d’un utilisateur par son email.\n
+    Retourne l’objet User ou erreur 404."""
+    u = users.get_by_email(email)
+    if not u:
+        raise HTTPException(status_code=404, detail="User not found")
+    return u
+
 # --- Product endpoints ---
 @app.post("/products")
 def add_product(product: ProductIn):
@@ -190,6 +152,31 @@ def list_products():
     """Liste tous les produits actifs du catalogue.\n
     Retourne une liste de produits."""
     return catalog_svc.list_products()
+
+@app.get("/products/all")
+def list_all_products():
+    """Liste tous les produits du catalogue (admin).\n
+    Retourne une liste de produits."""
+    return catalog_svc.list_all_products()
+
+@app.put("/products/{product_id}")
+def update_product(product_id: str, product: ProductIn):
+    """Met à jour les informations d’un produit existant (admin)."""
+    existing = products.get(product_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail="Product not found")
+    
+    # Mise à jour simple
+    existing.name = product.name
+    existing.description = product.description
+    existing.price_cents = product.price_cents
+    existing.stock_qty = product.stock_qty
+    if product.active is not None:
+        existing.active = product.active if product.stock_qty > 0 else False
+    else:
+        existing.active = True if product.stock_qty > 0 else False
+    products.add(existing)
+    return existing
 
 @app.get("/products/{product_id}")
 def get_product(product_id: str):
