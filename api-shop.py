@@ -370,6 +370,14 @@ def list_threads(user_id: str):
     Retourne une liste de MessageThread."""
     return threads.list_by_user(user_id)
 
+@app.get("/threads/messages/{thread_id}")
+def get_thread_messages(thread_id: str):
+    """Retourne tous les messages d’un thread spécifique."""
+    thread = threads.get(thread_id)
+    if not thread:
+        raise HTTPException(status_code=404, detail="Thread introuvable")
+    return thread.messages
+
 # --- Utility endpoints ---
 @app.get("/status")
 def status():

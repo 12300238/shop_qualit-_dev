@@ -159,7 +159,7 @@ elif page == "Panier":
                                 st.error(f"Erreur API ({resp.status_code})")
                             else:
                                 produit = resp.json()
-                            st.write(f"🛍️ Produit: `{produit['name']}` | Qté: {item['quantity']}")
+                                st.write(f"🛍️ Produit: `{produit['name']}` | Qté: {item['quantity']}")
                         with col2:
                             max_qty = max(1, item['quantity'])
                             qty_remove = st.number_input(
@@ -355,17 +355,16 @@ elif page == "Support":
     st.subheader("🎫 Support client")
 
     if not st.session_state["user_id"]:
-        st.warning("Connectez-vous pour créer un ticket.")
+        st.warning("Connectez-vous pour accéder au support.")
     else:
         user_id = st.session_state["user_id"]
+        user_i=requests.get(f"{API_URL}/users_id/{user_id}").json()['id']
 
-        st.markdown("#### 📬 Créer un nouveau ticket")
+        # --- Création d'un nouveau ticket ---
+        st.markdown("### 📬 Créer un nouveau ticket")
 
-        # Champ pour le nom / sujet du ticket
         subject = st.text_input("Objet du ticket")
-
-        # 🆕 Champ pour le premier message
-        message = st.text_area("Décrivez votre problème ou votre demande :", placeholder="Expliquez ici ce qui ne va pas...")
+        message = st.text_area("Décrivez votre problème :", placeholder="Expliquez votre situation ici...")
 
         if st.button("📨 Créer le ticket"):
             if not subject.strip():
@@ -374,138 +373,99 @@ elif page == "Support":
                 st.warning("Veuillez écrire un message avant d’envoyer.")
             else:
                 try:
-                    payload = {
+                    # 🧩 1️⃣ Création du thread
+                    payload_thread = {
                         "user_id": user_id,
                         "order_id": None,
                         "subject": subject.strip()
                     }
-                    resp = requests.post(f"{API_URL}/threads/open", json=payload)
-                    if resp.status_code == 200:
-                        st.success("✅ Ticket créé avec succès !")
-                        st.rerun()
+                    thread_resp = requests.post(f"{API_URL}/threads/open", json=payload_thread)
+
+                    if thread_resp.status_code == 200:
+                        thread = thread_resp.json()
+                        thread_id = thread["id"]
+
+                        # 🧩 2️⃣ Ajout du premier message
+
+                        payload_message = {
+                            "thread_id": thread_id,
+                            "author_user_id": user_i,
+                            "body": message.strip()
+                        }
+                        msg_resp = requests.post(f"{API_URL}/threads/post", json=payload_message)
+
+
+                        if msg_resp.status_code == 200:
+                            st.success("✅ Ticket créé avec succès !")
+                            st.rerun()
+                        else:
+                            st.error(msg_resp.json().get("detail", "Erreur lors de l'envoi du message."))
                     else:
-                        st.error(resp.json().get("detail", "Erreur lors de la création du ticket."))
+                        st.error(thread_resp.json().get("detail", "Erreur lors de la création du ticket."))
+
                 except Exception as e:
                     st.error(f"Impossible de contacter l'API : {e}")
 
-        st.markdown("---")
-        st.markdown("#### 📋 Vos tickets existants")
+        st.divider()
+        st.markdown("### 📋 Vos tickets")
+        # --- La suite de ton code support existant (liste + messages) reste inchangée ---
 
-        # Liste des tickets de l’utilisateur
+
+        # --- Liste des threads de l'utilisateur ---
         try:
-            r = requests.get(f"{API_URL}/threads/{user_id}")
-                        
-            if r.status_code == 200:
-                tickets = r.json()
-                if tickets:
-                    for t in sorted(tickets, key=lambda x: x.get("created_at", 0), reverse=True):
-                        st.write(f"**🎟️ Ticket :** {t['subject']}")
-                        st.write(f"📅 Créé le : {datetime.datetime.fromtimestamp(t['created_at']).strftime('%d/%m/%Y %H:%M')}")
-                        st.write(f"📌 Statut : {t['status']}")
-                        st.write("---")
+            resp = requests.get(f"{API_URL}/threads/{user_id}")
+            if resp.status_code == 200:
+                threads = resp.json()
+                if threads:
+                    # Trier du plus récent au plus ancien
+                    threads = sorted(threads, key=lambda t: t.get("created_at", 0), reverse=True)
+
+                    for th in threads:
+                        with st.expander(f"🎟️ {th['subject']} {'(Fermé)' if th.get('closed') else ''}"):
+                            st.write(f"📅 Créé le : {datetime.datetime.fromtimestamp(th['created_at']).strftime('%d/%m/%Y %H:%M')}")
+                            st.markdown("---")
+
+                            # --- Affichage des messages du thread ---
+                            for msg in th['messages']:
+                                sender = "🧑 Vous" if msg["author_user_id"] == user_i else "🎧 Support"
+                                date = datetime.datetime.fromtimestamp(msg["created_at"]).strftime("%d/%m/%Y %H:%M")
+                                st.markdown(f"**{sender}** ({date}) :\n> {msg['body']}")
+
+                            # --- Envoi d’un nouveau message ---
+                            if not th.get("closed", False):
+                                new_msg = st.text_area("✉️ Votre réponse :", key=f"msg_{th['id']}")
+                                if st.button("Envoyer", key=f"send_{th['id']}"):
+                                    if not new_msg.strip():
+                                        st.warning("Votre message est vide.")
+                                    else:
+                                        payload = {
+                                            "thread_id": th["id"],
+                                            "author_user_id": user_i,
+                                            "body": new_msg.strip()
+                                        }
+                                        r = requests.post(f"{API_URL}/threads/post", json=payload)
+                                        if r.status_code == 200:
+                                            st.success("Message envoyé ✅")
+                                            st.rerun()
+                                        else:
+                                            st.error(r.json().get("detail", "Erreur lors de l'envoi du message."))
+                            else:
+                                st.info("🔒 Ce ticket est fermé, vous ne pouvez plus répondre.")
                 else:
-                    st.info("Aucun ticket pour le moment.")
+                    st.info("Aucun ticket trouvé.")
             else:
                 st.error("Erreur lors du chargement des tickets.")
         except Exception as e:
             st.error(f"API non disponible : {e}")
 
 
-# ------------------------------------------------------
-#  PAGE : ADMIN (gestion des produits)
-# ------------------------------------------------------
-elif page == "Admin":
-    st.subheader("⚙️ Administration – Gestion des produits")
-
-    if not st.session_state.get("is_admin", False):
-        st.warning("Accès réservé aux administrateurs.")
-    else:
-        st.write("Créer un nouveau produit :")
-
-        with st.form("new_product_form"):
-            name = st.text_input("Nom du produit")
-            description = st.text_area("Description")
-            price_cents = st.number_input("Prix (en centimes)", min_value=0, step=100)
-            stock_qty = st.number_input("Quantité en stock", min_value=0, step=1)
-            active = st.checkbox("Produit actif", value=True)
-
-            submitted = st.form_submit_button("Créer le produit")
-
-            if submitted:
-                payload = {
-                    "name": name,
-                    "description": description,
-                    "price_cents": int(price_cents),
-                    "stock_qty": int(stock_qty),
-                    "active": active
-                }
-
-                try:
-                    resp = requests.post(f"{API_URL}/products", json=payload)
-                    if resp.status_code == 200:
-                        st.success(f"✅ Produit '{name}' créé avec succès !")
-                    else:
-                        st.error(resp.json().get("detail", "Erreur lors de la création du produit."))
-                except Exception as e:
-                    st.error(f"Erreur de communication avec l’API : {e}")
-
-        st.write("---")
-        st.subheader("📦 Liste des produits")
-
-        try:
-            resp = requests.get(f"{API_URL}/products/all")
-            if resp.status_code == 200:
-                all_products = resp.json()
-                if not all_products:
-                    st.info("Aucun produit trouvé.")
-                else:
-                    for prod in all_products:
-                        with st.expander(f"🛍️ {prod['name']}"):
-                            st.write(f"**ID :** {prod['id']}")
-                            st.write(f"**Description :** {prod['description']}")
-                            st.write(f"**Prix :** {prod['price_cents']/100:.2f} €")
-                            st.write(f"**Statut :** {'✅ Actif' if prod['active'] else '❌ Inactif'}")
-
-                            new_stock = st.number_input(
-                                f"Stock pour {prod['name']}",
-                                min_value=0,
-                                value=prod['stock_qty'],
-                                step=1,
-                                key=f"stock_{prod['id']}"
-                            )
-
-                            # Ne peut être actif que si stock > 0
-                            can_be_active = new_stock > 0
-                            new_active = st.checkbox(
-                                f"Produit actif ({prod['name']})",
-                                value=prod['active'] and can_be_active,
-                                disabled=not can_be_active,
-                                key=f"active_{prod['id']}"
-                            )
-
-                            if st.button(f"💾 Mettre à jour {prod['name']}", key=f"update_{prod['id']}"):
-                                updated_data = {
-                                    "name": prod["name"],
-                                    "description": prod["description"],
-                                    "price_cents": prod["price_cents"],
-                                    "stock_qty": int(new_stock),
-                                    "active": bool(new_active)
-                                }
-                                r = requests.put(f"{API_URL}/products/{prod['id']}", json=updated_data)
-                                if r.status_code == 200:
-                                    st.success(f"✅ Produit {prod['name']} mis à jour.")
-                                    st.rerun()
-                                else:
-                                    st.error(r.json().get("detail", "Erreur de mise à jour."))
-            else:
-                st.error("Erreur lors du chargement des produits.")
-        except Exception as e:
-            st.error(f"API non disponible : {e}")
-
 
 #lui redonner la liste des fichier
-# regler l'erreur de tipe ligne 162
-# quand un ticket s'affiche on a l'erreur API non disponible : 'created_at'
-# rendre fonctionnel la section de description du probleme dans le ticket
-# afficher le contenu des tickets et des threads
-# ajouter la possibilite de repondre aux tickets
+
+# gerer les threads dans la page support
+
+# modifier le statut des tickets (ouvert/ferme)
+
+# a la création d'un produit rendre inmpossible son activation si le stock est a 0
+
+# suprimer un produit dans la page admin

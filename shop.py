@@ -198,6 +198,7 @@ class MessageThread:
     subject: str
     messages: List["Message"] = field(default_factory=list)
     closed: bool = False
+    created_at: float = field(default_factory=time.time)
 
 
 @dataclass
