@@ -353,7 +353,7 @@ def post_message(msg: MessageIn):
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-@app.delete("/threads/close")
+@app.post("/threads/close")
 def close_thread(thread_id: str, admin_user_id: str):
     """Ferme un fil de discussion (admin).\n
     Params: thread_id, admin_user_id\n
@@ -377,6 +377,11 @@ def get_thread_messages(thread_id: str):
     if not thread:
         raise HTTPException(status_code=404, detail="Thread introuvable")
     return thread.messages
+
+@app.get("/admin/threads")
+def list_all_threads():
+    """Liste tous les fils de discussion (tickets) — réservé aux admins."""
+    return list(threads._by_id.values())
 
 # --- Utility endpoints ---
 @app.get("/status")

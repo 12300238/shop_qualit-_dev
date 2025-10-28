@@ -458,14 +458,173 @@ elif page == "Support":
         except Exception as e:
             st.error(f"API non disponible : {e}")
 
+# ------------------------------------------------------
+#  PAGE : ADMIN (gestion des produits)
+# ------------------------------------------------------
+elif page == "Admin":
+    st.subheader("⚙️ Administration – Gestion des produits")
+    if not st.session_state.get("is_admin", False):
+        st.warning("Accès réservé aux administrateurs.")
+    else:
+        st.write("Créer un nouveau produit :")
+
+        # 🧩 Champs interactifs réactifs
+        name = st.text_input("Nom du produit")
+        description = st.text_area("Description")
+        price_cents = st.number_input("Prix (en centimes)", min_value=0, step=100)
+        stock_qty = st.number_input("Quantité en stock", min_value=0, step=1)
+
+        # --- Comportement dynamique du statut actif ---
+        if stock_qty == 0:
+            st.info("⚠️ Le produit ne peut pas être actif avec un stock nul.")
+            active = st.checkbox("Produit actif", value=False, disabled=True)
+        else:
+            active = st.checkbox("Produit actif", value=True)
+
+        # --- Bouton de création (en dehors du form) ---
+        if st.button("Créer le produit"):
+            if not name or not description:
+                st.warning("Veuillez remplir tous les champs.")
+            else:
+                payload = {
+                    "name": name,
+                    "description": description,
+                    "price_cents": int(price_cents),
+                    "stock_qty": int(stock_qty),
+                    "active": active if stock_qty > 0 else False
+                }
+
+                try:
+                    resp = requests.post(f"{API_URL}/products", json=payload)
+                    if resp.status_code == 200:
+                        st.success(f"✅ Produit '{name}' créé avec succès !")
+                        st.rerun()
+                    else:
+                        st.error(resp.json().get("detail", "Erreur lors de la création du produit."))
+                except Exception as e:
+                    st.error(f"Erreur de communication avec l’API : {e}")
+        st.write("---")
+        st.subheader("📦 Liste des produits")
+
+        try:
+            resp = requests.get(f"{API_URL}/products/all")
+            if resp.status_code == 200:
+                all_products = resp.json()
+                if not all_products:
+                    st.info("Aucun produit trouvé.")
+                else:
+
+                    for prod in all_products:
+                        with st.expander(f"🛍️ {prod['name']}"):
+                            st.write(f"**ID :** {prod['id']}")
+                            st.write(f"**Description :** {prod['description']}")
+                            st.write(f"**Prix :** {prod['price_cents']/100:.2f} €")
+                            st.write(f"**Statut :** {'✅ Actif' if prod['active'] else '❌ Inactif'}")
+                            new_stock = st.number_input(
+                                f"Stock pour {prod['name']}",
+                                min_value=0,
+                                value=prod['stock_qty'],
+                                step=1,
+                                key=f"stock_{prod['id']}"
+                            )
+
+                            # Ne peut être actif que si stock > 0
+                            can_be_active = new_stock > 0
+                            new_active = st.checkbox(
+                                f"Produit actif ({prod['name']})",
+                                value=prod['active'] and can_be_active,
+                                disabled=not can_be_active,
+                                key=f"active_{prod['id']}"
+                            )
+
+                            if st.button(f"💾 Mettre à jour {prod['name']}", key=f"update_{prod['id']}"):
+                                updated_data = {
+                                    "name": prod["name"],
+                                    "description": prod["description"],
+                                    "price_cents": prod["price_cents"],
+                                    "stock_qty": int(new_stock),
+                                    "active": bool(new_active)
+                                }
+
+                                r = requests.put(f"{API_URL}/products/{prod['id']}", json=updated_data)
+                                if r.status_code == 200:
+                                    st.success(f"✅ Produit {prod['name']} mis à jour.")
+                                    st.rerun()
+                                else:
+                                    st.error(r.json().get("detail", "Erreur de mise à jour."))
+
+            else:
+                st.error("Erreur lors du chargement des produits.")
+
+        except Exception as e:
+            st.error(f"API non disponible : {e}")
+
+
+    st.markdown("## 🎫 Gestion des tickets support")
+    try:
+        resp = requests.get(f"{API_URL}/admin/threads")
+        if resp.status_code == 200:
+            threads = resp.json()
+            if threads:
+                # Trier du plus récent au plus ancien
+                threads = sorted(threads, key=lambda t: t.get("created_at", 0), reverse=True)
+
+                for th in threads:
+                    with st.expander(f"🎟️ {th['subject']} — Utilisateur: {th['user_id']} {'(Fermé)' if th['closed'] else ''}"):
+                        st.write(f"📅 Créé le : {datetime.datetime.fromtimestamp(th['created_at']).strftime('%d/%m/%Y %H:%M')}")
+                        st.markdown("---")
+
+                        # --- Affichage des messages ---
+                        for msg in th["messages"]:
+                            sender = "🎧 Support" if msg["author_user_id"] is None else f"🧑 {msg['author_user_id']}"
+                            date = datetime.datetime.fromtimestamp(msg["created_at"]).strftime("%d/%m/%Y %H:%M")
+                            st.markdown(f"**{sender}** ({date}) :\n> {msg['body']}")
+
+                        st.markdown("---")
+
+                        if not th["closed"]:
+                            reply = st.text_area("✉️ Réponse de l'admin :", key=f"reply_{th['id']}")
+                            col1, col2 = st.columns([1, 1])
+
+                            with col1:
+                                if st.button("📨 Envoyer", key=f"reply_btn_{th['id']}"):
+                                    if not reply.strip():
+                                        st.warning("Message vide.")
+                                    else:
+                                        payload = {
+                                            "thread_id": th["id"],
+                                            "author_user_id": "admin",  # auteur = admin
+                                            "body": reply.strip()
+                                        }
+                                        r = requests.post(f"{API_URL}/threads/post", json=payload)
+                                        if r.status_code == 200:
+                                            st.success("Réponse envoyée ✅")
+                                            st.rerun()
+                                        else:
+                                            st.error(r.json().get("detail", "Erreur lors de l’envoi."))
+
+                            with col2:
+                                if st.button("🔒 Fermer le ticket", key=f"close_{th['id']}"):
+                                    admin_id = requests.get(f"{API_URL}/users_id/{st.session_state['user_id']}").json()['id']
+                                    r = requests.post(f"{API_URL}/threads/close?thread_id={th['id']}&admin_user_id={admin_id}")
+
+                                    
+                                    if r.status_code == 200:
+                                        st.info("Ticket fermé 🏁")
+                                        st.rerun()
+                                    else:
+                                        st.error(r.json().get("detail", "Erreur lors de la fermeture."))
+                        else:
+                            st.info("🔒 Ticket fermé.")
+            else:
+                st.info("Aucun ticket à afficher.")
+        else:
+            st.error("Erreur lors du chargement des tickets (admin).")
+    except Exception as e:
+        st.error(f"API non disponible : {e}")
+
 
 
 #lui redonner la liste des fichier
 
-# gerer les threads dans la page support
-
-# modifier le statut des tickets (ouvert/ferme)
-
-# a la création d'un produit rendre inmpossible son activation si le stock est a 0
-
-# suprimer un produit dans la page admin
+#ouvrire un ticket a partire d'une commande
