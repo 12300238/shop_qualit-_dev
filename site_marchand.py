@@ -2,6 +2,7 @@ import streamlit as st
 from streamlit_option_menu import option_menu
 import requests
 import datetime
+import re
 
 API_URL = "http://127.0.0.1:8000"
 
@@ -68,6 +69,21 @@ if page == "Connexion":
         last_name = st.text_input("Nom")
         address = st.text_area("Adresse")
         if st.button("S'inscrire"):
+            
+            if not email or not password or not first_name or not last_name or not address:
+                st.warning("Veuillez remplir tous les champs.")
+                st.stop()
+
+            email_regex = r'(([^<>()\[\]\\.,;:\s@"]+(\.[^<>()\[\]\\.,;:\s@"]+)*)|(".+"))@((\[[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}])|(([a-zA-Z\-0-9]+\.)+[a-zA-Z]{2,}))'
+            if not re.match(email_regex, email):
+                st.error("❌ Adresse e-mail invalide. Exemple : nom@example.com")
+                st.stop()
+            
+            regex_address = r"^[0-9]{1,4}\s+[A-Za-zÀ-ÿ0-9'’\-\.\s]+?\s+[0-9]{5}\s+[A-Za-zÀ-ÿ'’\-\.\s]+$"
+            if not re.match(regex_address, address.strip()):
+                st.error("🚫 Adresse invalide. Exemple valide : 10 Rue Victor Hugo 75001 Paris")
+                st.stop()
+
             payload = {
                 "email": email,
                 "password": password,
@@ -339,6 +355,55 @@ elif page == "Commandes":
                             elif status_value == "REMBOURSEE":
                                 st.info("💸 Commande remboursée.")
 
+                        # ✅ Bouton support lié à une commande
+                        with st.expander("📬 Contacter le support pour cette commande"):
+                            user_id = st.session_state["user_id"]
+                            user_obj = requests.get(f"{API_URL}/users_id/{user_id}").json()
+                            user_uuid = user_obj['id']
+
+                            default_subject = f"Problème commande {cmd['id']}"
+                            subject_support = st.text_input(
+                                f"Objet ticket ({cmd['id']})", 
+                                value=default_subject, 
+                                key=f"subject_{cmd['id']}"
+                            )
+                            msg_support = st.text_area(
+                                "Expliquez votre problème :", 
+                                key=f"support_msg_{cmd['id']}"
+                            )
+
+                            if st.button("📨 Ouvrir un ticket support", key=f"open_ticket_{cmd['id']}"):
+                                if not msg_support.strip():
+                                    st.warning("Veuillez écrire un message avant d'envoyer.")
+                                else:
+                                    # 1️⃣ Création du thread lié à la commande
+                                    thread_data = {
+                                        "user_id": user_id,
+                                        "order_id": cmd["id"],
+                                        "subject": subject_support.strip()
+                                    }
+                                    r_th = requests.post(f"{API_URL}/threads/open", json=thread_data)
+
+                                    if r_th.status_code == 200:
+                                        thread = r_th.json()
+                                        thread_id = thread["id"]
+
+                                        # 2️⃣ Ajout du premier message
+                                        msg_data = {
+                                            "thread_id": thread_id,
+                                            "author_user_id": user_uuid,
+                                            "body": msg_support.strip()
+                                        }
+                                        r_msg = requests.post(f"{API_URL}/threads/post", json=msg_data)
+
+                                        if r_msg.status_code == 200:
+                                            st.success("✅ Ticket envoyé au support !")
+                                            st.rerun()
+                                        else:
+                                            st.error("Erreur lors de l’envoi du message.")
+                                    else:
+                                        st.error("Erreur lors de la création du ticket.")
+
                         st.write("---")
                 else:
                     st.info("Aucune commande trouvée.")
@@ -421,7 +486,9 @@ elif page == "Support":
                     threads = sorted(threads, key=lambda t: t.get("created_at", 0), reverse=True)
 
                     for th in threads:
-                        with st.expander(f"🎟️ {th['subject']} {'(Fermé)' if th.get('closed') else ''}"):
+                        order_info = f" | Commande : {th['order_id']}" if th.get("order_id") else ""
+                        with st.expander(f"🎟️ {th['subject']}{order_info} {'(Fermé)' if th.get('closed') else ''}"):
+
                             st.write(f"📅 Créé le : {datetime.datetime.fromtimestamp(th['created_at']).strftime('%d/%m/%Y %H:%M')}")
                             st.markdown("---")
 
@@ -570,7 +637,9 @@ elif page == "Admin":
                 threads = sorted(threads, key=lambda t: t.get("created_at", 0), reverse=True)
 
                 for th in threads:
-                    with st.expander(f"🎟️ {th['subject']} — Utilisateur: {th['user_id']} {'(Fermé)' if th['closed'] else ''}"):
+                    order_info = f" | Cmd: {th['order_id']}" if th.get("order_id") else ""
+                    with st.expander(f"🎟️ {th['subject']}{order_info} — Utilisateur: {th['user_id']} {'(Fermé)' if th['closed'] else ''}"):
+
                         st.write(f"📅 Créé le : {datetime.datetime.fromtimestamp(th['created_at']).strftime('%d/%m/%Y %H:%M')}")
                         st.markdown("---")
 
@@ -593,9 +662,10 @@ elif page == "Admin":
                                     else:
                                         payload = {
                                             "thread_id": th["id"],
-                                            "author_user_id": "admin",  # auteur = admin
+                                            "author_user_id": requests.get(f"{API_URL}/users_id/{st.session_state["user_id"]}").json()['id'],
                                             "body": reply.strip()
                                         }
+
                                         r = requests.post(f"{API_URL}/threads/post", json=payload)
                                         if r.status_code == 200:
                                             st.success("Réponse envoyée ✅")
@@ -622,9 +692,3 @@ elif page == "Admin":
             st.error("Erreur lors du chargement des tickets (admin).")
     except Exception as e:
         st.error(f"API non disponible : {e}")
-
-
-
-#lui redonner la liste des fichier
-
-#ouvrire un ticket a partire d'une commande
