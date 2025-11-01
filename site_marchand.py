@@ -5,7 +5,7 @@ import datetime
 import re
 import json
 
-API_URL = "http://127.0.0.1:8000"
+API_URL = "http://api:8000"
 
 st.set_page_config(page_title="Shop Frontend", layout="wide")
 st.title("🛍️ Boutique en ligne")
