@@ -21,7 +21,7 @@ if "users" not in st.session_state:
 
 # --- Barre latérale ---
 with st.sidebar:
-    menu_options = ["Accueil", "Connexion", "Panier", "Commandes", "Support"]
+    menu_options = ["Accueil", "Profil", "Panier", "Commandes", "Support"]
     menu_icons = ["house", "person", "cart", "truck", "chat"]
 
     if st.session_state.get("is_admin", False):
@@ -39,71 +39,150 @@ with st.sidebar:
 page = selected
 
 # ------------------------------------------------------
-#  PAGE : CONNEXION / INSCRIPTION
+#  PAGE : PROFIL (remplace "Connexion")
 # ------------------------------------------------------
-if page == "Connexion":
-    st.subheader("🔑 Connexion ou inscription")
+if page == "Profil":
+    st.subheader("👤 Mon profil")
 
-    with st.expander("Connexion existante"):
-        email = st.text_input("Email", key="login_email")
-        password = st.text_input("Mot de passe", type="password", key="login_password")
-        if st.button("Se connecter"):
-            payload = {"email": email, "password": password, "first_name": "", "last_name": "", "address": ""}
-            r = requests.post(f"{API_URL}/users/login", json=payload)
-            if r.status_code == 200:
-                token = r.json()["token"]
-                # Récupération de l'user
-                st.session_state["users"] = requests.get(f"{API_URL}/users_id/{email}").json()
-                st.session_state["is_admin"] = st.session_state["users"]["is_admin"]
-                st.session_state["token"] = token
-                # On récupère l'user via un GET par email (simplifié)
-                st.session_state["user_id"] = email  # temporaire
-                st.success("Connexion réussie ✅")
-            else:
-                st.error(r.json().get("detail", "Erreur de connexion."))
+    # ✅ Si pas connecté → connexion + inscription
+    if not st.session_state["token"]:
+        with st.expander("Connexion"):
+            email_login = st.text_input("Email", key="login_email")
+            pwd_login = st.text_input("Mot de passe", type="password", key="login_password")
 
-    with st.expander("Créer un compte"):
-        email = st.text_input("Email (nouveau compte)", key="reg_email")
-        password = st.text_input("Mot de passe", type="password", key="reg_password")
-        first_name = st.text_input("Prénom")
-        last_name = st.text_input("Nom")
-        address = st.text_area("Adresse")
-        if st.button("S'inscrire"):
-            
-            if not email or not password or not first_name or not last_name or not address:
-                st.warning("Veuillez remplir tous les champs.")
+            if st.button("Se connecter"):
+                payload = {"email": email_login, "password": pwd_login,
+                           "first_name": "", "last_name": "", "address": ""}
+                r = requests.post(f"{API_URL}/users/login", json=payload)
+                if r.status_code == 200:
+                    token = r.json()["token"]
+                    user_obj = requests.get(f"{API_URL}/users_id/{email_login}").json()
+                    st.session_state.update({
+                        "token": token,
+                        "users": user_obj,
+                        "user_id": user_obj["id"],
+                        "is_admin": user_obj["is_admin"]
+                    })
+                    st.success("Connexion réussie ✅")
+                    st.rerun()
+                else:
+                    st.error(r.json().get("detail", "Erreur de connexion."))
+
+        st.divider()
+
+        # ✅ Formulaire d’inscription
+        with st.expander("Créer un compte"):
+            email_reg = st.text_input("Email")
+            pwd_reg = st.text_input("Mot de passe", type="password")
+            first_name_reg = st.text_input("Prénom")
+            last_name_reg = st.text_input("Nom")
+            num_reg = st.text_input("Numéro de rue")
+            street_reg = st.text_input("Rue")
+            cp_reg = st.text_input("Code postal")
+            city_reg = st.text_input("Ville")
+
+            if st.button("Créer mon compte"):
+                if not (email_reg and pwd_reg and first_name_reg and last_name_reg and num_reg and street_reg and cp_reg and city_reg):
+                    st.error("Veuillez remplir tous les champs.")
+                    st.stop()
+                else:
+                    # Validation regex
+                    if not re.match(r"^((?!\.)[\w\-_.]*[^.])(@\w+)(\.\w+(\.\w+)?[^.\W])$", email_reg.strip()):
+                        st.error("email invalide.")
+                        st.stop()
+                    if not re.match(r"^[0-9]{1,4}[A-Za-z]?$", num_reg.strip()):
+                        st.error("Numéro de rue invalide.")
+                        st.stop()
+                    if not re.match(r"^[A-Za-zÀ-ÿ0-9'’\-\.\s]{3,}$", street_reg.strip()):
+                        st.error("Nom de rue invalide.")
+                        st.stop()
+                    if not re.match(r"^[0-9]{5}$", cp_reg.strip()):
+                        st.error("Code postal invalide.")
+                        st.stop()
+                    if not re.match(r"^[A-Za-zÀ-ÿ'’\-\.\s]{2,}$", city_reg.strip()):
+                        st.error("Nom de ville invalide.")
+                        st.stop()
+
+                    address_full = f"{num_reg.strip()} {street_reg.strip()} {cp_reg.strip()} {city_reg.strip()}"
+
+                    payload = {
+                        "email": email_reg,
+                        "password": pwd_reg,
+                        "first_name": first_name_reg,
+                        "last_name": last_name_reg,
+                        "address": address_full
+                    }
+
+                    r = requests.post(f"{API_URL}/users/register", json=payload)
+
+                    if r.status_code == 200:
+                        st.success("✅ Compte créé, vous pouvez vous connecter !")
+                    else:
+                        st.error(r.json().get("detail", "Erreur lors de l'inscription."))
+
+    else:
+        # ✅ Modification des infos du user connecté
+        user = st.session_state["users"]
+
+        st.write(f"**Email :** {user['email']}")
+        st.write(f"**Admin :** {'✅ Oui' if user['is_admin'] else '❌ Non'}")
+        st.divider()
+
+        st.markdown("### ✏️ Modifier mes informations")
+
+        # Découper l’adresse existante
+        parts = user["address"].split(" ")
+        num_init = parts[0]
+        cp_init = parts[-2]
+        city_init = " ".join(parts[-1:])
+        street_init = " ".join(parts[1:-2])
+
+        first_name = st.text_input("Prénom", value=user["first_name"])
+        last_name = st.text_input("Nom", value=user["last_name"])
+        num = st.text_input("Numéro", value=num_init)
+        street = st.text_input("Rue", value=street_init)
+        cp = st.text_input("Code postal", value=cp_init)
+        city = st.text_input("Ville", value=city_init)
+
+        if not (first_name and last_name and num and street and cp and city):
+                    st.error("Veuillez remplir tous les champs.")
+                    st.stop()
+        if st.button("💾 Mettre à jour le profil"):
+            if not re.match(r"^[0-9]{1,4}[A-Za-z]?$", num.strip()):
+                st.error("Numéro invalide.")
+                st.stop()
+            if not re.match(r"^[A-Za-zÀ-ÿ0-9'’\-\.\s]{3,}$", street.strip()):
+                st.error("Rue invalide.")
+                st.stop()
+            if not re.match(r"^[0-9]{5}$", cp.strip()):
+                st.error("Code postal invalide.")
+                st.stop()
+            if not re.match(r"^[A-Za-zÀ-ÿ'’\-\.\s]{2,}$", city):
+                st.error("Ville invalide.")
                 st.stop()
 
-            email_regex = r'(([^<>()\[\]\\.,;:\s@"]+(\.[^<>()\[\]\\.,;:\s@"]+)*)|(".+"))@((\[[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}])|(([a-zA-Z\-0-9]+\.)+[a-zA-Z]{2,}))'
-            if not re.match(email_regex, email):
-                st.error("❌ Adresse e-mail invalide. Exemple : nom@example.com")
-                st.stop()
-            
-            regex_address = r"^[0-9]{1,4}\s+[A-Za-zÀ-ÿ0-9'’\-\.\s]+?\s+[0-9]{5}\s+[A-Za-zÀ-ÿ'’\-\.\s]+$"
-            if not re.match(regex_address, address.strip()):
-                st.error("🚫 Adresse invalide. Exemple valide : 10 Rue Victor Hugo 75001 Paris")
-                st.stop()
+            address_full = f"{num.strip()} {street.strip()} {cp.strip()} {city.strip()}"
 
-            payload = {
-                "email": email,
-                "password": password,
+            data = {
                 "first_name": first_name,
                 "last_name": last_name,
-                "address": address,
-                "is_admin": False
+                "address": address_full
             }
-            r = requests.post(f"{API_URL}/users/register", json=payload)
-            if r.status_code == 200:
-                st.success("Compte créé avec succès 🎉")
-            else:
-                st.error(r.json().get("detail", "Erreur d'inscription."))
 
-    if st.session_state["token"]:
+            r = requests.put(f"{API_URL}/users/{user['id']}", json=data)
+            if r.status_code == 200:
+                st.success("✅ Profil mis à jour !")
+                st.session_state["users"] = requests.get(f"{API_URL}/users/{user['id']}").json()
+                st.rerun()
+            else:
+                st.error(r.json().get("detail", "Erreur lors de la mise à jour."))
+
+        st.divider()
         if st.button("Se déconnecter"):
             requests.delete(f"{API_URL}/users/logout", params={"token": st.session_state['token']})
-            st.session_state["token"] = None
-            st.session_state["user_id"] = None
+            st.session_state.update({"token": None, "user_id": None, "users": None})
             st.success("Déconnexion réussie 👋")
+            st.rerun()
 
 # ------------------------------------------------------
 #  PAGE : ACCUEIL

@@ -88,6 +88,11 @@ class MessageIn(BaseModel):
     author_user_id: Optional[str]
     body: str
 
+class UserUpdate(BaseModel):
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    address: Optional[str] = None
+
 # --- User endpoints ---
 @app.post("/users/register")
 def register_user(user: UserIn):
@@ -99,6 +104,25 @@ def register_user(user: UserIn):
         return u
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    
+@app.put("/users/{user_id}")
+def update_user_profile(user_id: str, data: UserUpdate):
+    """
+    Met à jour les informations du profil utilisateur (hors email, admin, mot de passe).
+    Body: first_name, last_name, address (optionnels)
+    Retour: User mis à jour
+    """
+    user = users.get(user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    user.update_profile(
+        first_name=data.first_name,
+        last_name=data.last_name,
+        address=data.address
+    )
+    return user
+
 
 @app.post("/users/login")
 def login_user(user: UserIn):
@@ -267,6 +291,23 @@ def request_cancellation(user_id: str, order_id: str):
         return order
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    
+@app.post("/orders/admin/cancel")
+def admin_cancel_order(admin_user_id: str, order_id: str, user_id: str):
+    """
+    Annule une commande au nom du client (admin).
+    Params: admin_user_id, order_id, user_id
+    Retour: Order annulée & stock remis
+    """
+    try:
+        admin = users.get(admin_user_id)
+        if not admin or not admin.is_admin:
+            raise PermissionError("Droits insuffisants.")
+
+        order = order_svc.request_cancellation(user_id, order_id)
+        return order
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 # --- Backoffice endpoints ---
 @app.post("/orders/validate")
@@ -290,6 +331,21 @@ def backoffice_ship_order(admin_user_id: str, order_id: str):
         return order
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+    
+@app.get("/orders/{order_id}/delivery")
+def get_delivery_status(order_id: str):
+    """
+    Retourne les informations de livraison d’une commande.
+    Retour: Delivery ou erreur 404 si pas encore expédiée.
+    """
+    order = orders.get(order_id)
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+
+    if not order.delivery:
+        raise HTTPException(status_code=404, detail="Delivery not available yet")
+
+    return order.delivery
 
 @app.post("/orders/mark_delivered")
 def backoffice_mark_delivered(admin_user_id: str, order_id: str):
@@ -312,6 +368,20 @@ def backoffice_refund(admin_user_id: str, order_id: str, amount_cents: Optional[
         return order
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+    
+    
+@app.get("/orders/{order_id}/invoice")
+def get_order_invoice(order_id: str):
+    """
+    Retourne la facture liée à une commande.
+    Retour: Invoice ou erreur 404 si pas encore facturée.
+    """
+    order = orders.get(order_id)
+    if not order or not order.invoice_id:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+
+    inv = invoices.get(order.invoice_id)
+    return inv
 
 # --- Invoice endpoints ---
 @app.get("/invoices/{invoice_id}")
@@ -382,6 +452,17 @@ def get_thread_messages(thread_id: str):
 def list_all_threads():
     """Liste tous les fils de discussion (tickets) — réservé aux admins."""
     return list(threads._by_id.values())
+
+@app.get("/admin/threads/{thread_id}/messages")
+def admin_get_thread_messages(thread_id: str):
+    """
+    Permet à l'admin de voir tous les messages d'un ticket.
+    Retour: liste des messages
+    """
+    thread = threads.get(thread_id)
+    if not thread:
+        raise HTTPException(status_code=404, detail="Thread not found")
+    return thread.messages
 
 # --- Utility endpoints ---
 @app.get("/status")
