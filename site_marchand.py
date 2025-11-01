@@ -3,6 +3,7 @@ from streamlit_option_menu import option_menu
 import requests
 import datetime
 import re
+import json
 
 API_URL = "http://127.0.0.1:8000"
 
@@ -385,8 +386,10 @@ elif page == "Commandes":
                                             }
                                             r = requests.post(f"{API_URL}/orders/pay", json=pay)
                                             if r.status_code == 200:
+                                                st.session_state["just_paid"] = cmd["id"]
                                                 st.success("Paiement réussi 💳")
                                                 st.rerun()
+
                                             else:
                                                 st.error(r.json().get("detail", "Erreur de paiement"))
 
@@ -433,6 +436,20 @@ elif page == "Commandes":
                                 st.warning("❌ Commande annulée.")
                             elif status_value == "REMBOURSEE":
                                 st.info("💸 Commande remboursée.")
+
+                        # ✅ Affichage de la facture si un paiement vient d'avoir lieu
+                        if status_value in ["PAYEE", "EXPEDIEE", "LIVREE", "REMBOURSEE"]:
+                            invoice_resp = requests.get(f"{API_URL}/orders/{cmd['id']}/invoice")
+                            if invoice_resp.status_code == 200:
+                                invoice = invoice_resp.json()
+                                st.download_button(
+                                    label="🧾 Télécharger la facture",
+                                    data=json.dumps(invoice, indent=4),
+                                    file_name=f"facture_{cmd['id']}.json",
+                                    mime="application/json"
+                                )
+                            else:
+                                st.warning("Facture en cours de génération…")
 
                         # ✅ Bouton support lié à une commande
                         with st.expander("📬 Contacter le support pour cette commande"):
