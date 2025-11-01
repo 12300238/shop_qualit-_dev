@@ -437,8 +437,7 @@ elif page == "Commandes":
                         # ✅ Bouton support lié à une commande
                         with st.expander("📬 Contacter le support pour cette commande"):
                             user_id = st.session_state["user_id"]
-                            user_obj = requests.get(f"{API_URL}/users_id/{user_id}").json()
-                            user_uuid = user_obj['id']
+                            user_uuid = st.session_state["user_id"]
 
                             default_subject = f"Problème commande {cmd['id']}"
                             subject_support = st.text_input(
@@ -502,7 +501,7 @@ elif page == "Support":
         st.warning("Connectez-vous pour accéder au support.")
     else:
         user_id = st.session_state["user_id"]
-        user_i=requests.get(f"{API_URL}/users_id/{user_id}").json()['id']
+        user_i = st.session_state["user_id"]
 
         # --- Création d'un nouveau ticket ---
         st.markdown("### 📬 Créer un nouveau ticket")
@@ -705,6 +704,74 @@ elif page == "Admin":
         except Exception as e:
             st.error(f"API non disponible : {e}")
 
+        st.write("---")
+        st.subheader("📦 Gestion des commandes")
+
+        try:
+            admin_id = st.session_state["user_id"]
+            resp = requests.get(f"{API_URL}/admin/orders", params={"admin_user_id": admin_id})
+        except:
+            st.error("Impossible de charger les commandes.")
+        else:
+            if resp.status_code != 200:
+                st.error("Erreur lors du chargement des commandes.")
+            else:
+                commandes = resp.json()
+
+                if not commandes:
+                    st.info("Aucune commande.")
+                else:
+                    status_map = {
+                        1: "CREE",
+                        2: "VALIDEE",
+                        3: "PAYEE",
+                        4: "EXPEDIEE",
+                        5: "LIVREE",
+                        6: "ANNULEE",
+                        7: "REMBOURSEE"
+                    }
+
+                    # 🧩 Admin ID = le user connecté
+                    admin_id = st.session_state["user_id"]
+
+                    for cmd in commandes:
+                        status_text = status_map.get(cmd["status"], "Inconnu")
+                        with st.expander(f"📦 Cmd {cmd['id']} — {status_text}"):
+
+                            # --- Affichage des produits achetés ---
+                            if "items" in cmd:
+                                total = 0
+                                for item in cmd["items"]:
+                                    st.write(f"- `{item['name']}` × {item['quantity']}")
+                                    total += (item["unit_price_cents"] * item["quantity"]) / 100
+                                st.write(f"💰 Total : {total:.2f} €")
+                            st.write("---")
+
+                            # ✅ Actions selon le statut
+                            if status_text == "CREE":
+                                if st.button(f"✅ Valider commande {cmd['id']}", key=f"val_{cmd['id']}"):
+                                    r = requests.post(f"{API_URL}/orders/validate", params={"admin_user_id": admin_id, "order_id": cmd["id"]})
+                                    st.rerun()
+
+                            if status_text in ["VALIDEE", "PAYEE"]:
+                                if st.button(f"🚚 Expédier commande {cmd['id']}", key=f"ship_{cmd['id']}"):
+                                    r = requests.post(f"{API_URL}/orders/ship", params={"admin_user_id": admin_id, "order_id": cmd["id"]})
+                                    st.rerun()
+
+                            if status_text == "EXPEDIEE":
+                                if st.button(f"📬 Marquer livrée {cmd['id']}", key=f"liv_{cmd['id']}"):
+                                    r = requests.post(f"{API_URL}/orders/mark_delivered", params={"admin_user_id": admin_id, "order_id": cmd["id"]})
+                                    st.rerun()
+
+                            if status_text in ["CREE", "VALIDEE"]:
+                                if st.button(f"❌ Annuler commande {cmd['id']}", key=f"cancel_admin_{cmd['id']}"):
+                                    r = requests.post(f"{API_URL}/orders/admin/cancel", params={"admin_user_id": admin_id, "order_id": cmd["id"], "user_id": cmd["user_id"]})
+                                    st.rerun()
+
+                            if status_text in ["PAYEE", "LIVREE"]:
+                                if st.button(f"💸 Rembourser commande {cmd['id']}", key=f"refund_{cmd['id']}"):
+                                    r = requests.post(f"{API_URL}/orders/refund", params={"admin_user_id": admin_id, "order_id": cmd["id"]})
+                                    st.rerun()
 
     st.markdown("## 🎫 Gestion des tickets support")
     try:

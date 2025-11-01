@@ -331,21 +331,6 @@ def backoffice_ship_order(admin_user_id: str, order_id: str):
         return order
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
-    
-@app.get("/orders/{order_id}/delivery")
-def get_delivery_status(order_id: str):
-    """
-    Retourne les informations de livraison d’une commande.
-    Retour: Delivery ou erreur 404 si pas encore expédiée.
-    """
-    order = orders.get(order_id)
-    if not order:
-        raise HTTPException(status_code=404, detail="Order not found")
-
-    if not order.delivery:
-        raise HTTPException(status_code=404, detail="Delivery not available yet")
-
-    return order.delivery
 
 @app.post("/orders/mark_delivered")
 def backoffice_mark_delivered(admin_user_id: str, order_id: str):
@@ -382,6 +367,19 @@ def get_order_invoice(order_id: str):
 
     inv = invoices.get(order.invoice_id)
     return inv
+
+@app.get("/admin/orders")
+def admin_list_orders(admin_user_id: str):
+    """
+    Liste toutes les commandes (réservé aux admins).
+    Paramètre: admin_user_id (doit être un admin)
+    Retour : Toutes les commandes du système
+    """
+    admin = users.get(admin_user_id)
+    if not admin or not admin.is_admin:
+        raise HTTPException(status_code=403, detail="Accès réservé aux administrateurs")
+
+    return list(orders._by_id.values())
 
 # --- Invoice endpoints ---
 @app.get("/invoices/{invoice_id}")
