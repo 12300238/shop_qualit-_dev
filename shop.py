@@ -198,6 +198,7 @@ class MessageThread:
     subject: str
     messages: List["Message"] = field(default_factory=list)
     closed: bool = False
+    created_at: float = field(default_factory=time.time)
 
 
 @dataclass
@@ -285,6 +286,10 @@ class ProductRepository:
     def list_active(self) -> List[Product]:
         """Liste tous les produits actifs."""
         return [p for p in self._by_id.values() if p.active]
+    
+    def list_all(self) -> List[Product]:
+        """Liste tous les produits, actifs ou non."""
+        return list(self._by_id.values())
 
     def reserve_stock(self, product_id: str, qty: int):
         """Réserve (débite) `qty` unités du stock d'un produit.
@@ -476,6 +481,10 @@ class CatalogService:
     def list_products(self) -> List[Product]:
         """Retourne la liste des produits actifs."""
         return self.products.list_active()
+    
+    def list_all_products(self) -> List[Product]:
+        """Retourne la liste de tous les produits, actifs ou non."""
+        return self.products.list_all()
 
 
 class CartService:
@@ -636,6 +645,8 @@ class OrderService:
             if p.stock_qty < it.quantity:
                 raise ValueError(f"Stock insuffisant pour {p.name}.")
             self.products.reserve_stock(p.id, it.quantity)
+            if p.stock_qty <= 0:
+                p.active = False
             order_items.append(OrderItem(
                 product_id=p.id,
                 name=p.name,

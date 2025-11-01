@@ -3,12 +3,10 @@ from fastapi import FastAPI, HTTPException, Depends
 from pydantic import BaseModel
 from typing import List, Optional
 import uuid
-import time
 from shop import *
+import os
 
 app = FastAPI(title="Shop API")
-
-import os
 
 # --- In-memory repositories and services ---
 users = UserRepository()
@@ -28,6 +26,7 @@ catalog_svc = CatalogService(products)
 cart_svc = CartService(carts, products)
 customer_svc = CustomerService(threads, users)
 
+
 # --- Chargement auto des données de test ---
 def load_test_data(json_path, users_repo, products_repo, carts_repo):
     from shop import PasswordHasher, User, Product
@@ -44,53 +43,6 @@ def load_test_data(json_path, users_repo, products_repo, carts_repo):
     for p in data.get('products', []):
         product = Product(**p)
         products_repo.add(product)
-    # Paniers
-    for c in data.get('carts', []):
-        cart = carts_repo.get_or_create(c['user_id'])
-        for item in c.get('items', []):
-            cart.add(products_repo.get(item['product_id']), item['quantity'])
-    # Commandes
-    if 'orders' in data:
-        from shop import Order, OrderItem, OrderStatus
-        for o in data['orders']:
-            o['items'] = [OrderItem(**oi) for oi in o['items']]
-            o['status'] = OrderStatus[o['status']]
-            orders.add(Order(**o))
-    # Factures
-    if 'invoices' in data:
-        from shop import Invoice, InvoiceLine
-        for inv in data['invoices']:
-            inv['lines'] = [InvoiceLine(**l) for l in inv['lines']]
-            invoices.add(Invoice(**inv))
-    # Paiements
-    if 'payments' in data:
-        from shop import Payment
-        for pay in data['payments']:
-            payments.add(Payment(**pay))
-    # Livraisons
-    if 'deliveries' in data:
-        from shop import Delivery
-        for d in data['deliveries']:
-            delivery = Delivery(**d)
-            # Optionnel: rattacher à la commande si id match
-            if 'order_id' in d:
-                ord = orders.get(d['order_id'])
-                if ord:
-                    ord.delivery = delivery
-            # Pas de repository dédié dans ce design, mais on pourrait en ajouter
-    # Threads
-    if 'threads' in data:
-        from shop import MessageThread
-        for th in data['threads']:
-            threads.add(MessageThread(**th))
-    # Messages
-    if 'messages' in data:
-        from shop import Message
-        for msg in data['messages']:
-            message = Message(**msg)
-            thread = threads.get(msg['thread_id'])
-            if thread:
-                thread.messages.append(message)
 
 # Charge les données au démarrage
 load_test_data(os.path.join(os.path.dirname(__file__), 'test_data.json'), users, products, carts)
@@ -136,6 +88,11 @@ class MessageIn(BaseModel):
     author_user_id: Optional[str]
     body: str
 
+class UserUpdate(BaseModel):
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    address: Optional[str] = None
+
 # --- User endpoints ---
 @app.post("/users/register")
 def register_user(user: UserIn):
@@ -147,6 +104,25 @@ def register_user(user: UserIn):
         return u
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    
+@app.put("/users/{user_id}")
+def update_user_profile(user_id: str, data: UserUpdate):
+    """
+    Met à jour les informations du profil utilisateur (hors email, admin, mot de passe).
+    Body: first_name, last_name, address (optionnels)
+    Retour: User mis à jour
+    """
+    user = users.get(user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    user.update_profile(
+        first_name=data.first_name,
+        last_name=data.last_name,
+        address=data.address
+    )
+    return user
+
 
 @app.post("/users/login")
 def login_user(user: UserIn):
@@ -176,6 +152,15 @@ def get_user(user_id: str):
         raise HTTPException(status_code=404, detail="User not found")
     return u
 
+@app.get("/users_id/{email}")
+def get_user_by_email(email: str):
+    """Récupère les infos d’un utilisateur par son email.\n
+    Retourne l’objet User ou erreur 404."""
+    u = users.get_by_email(email)
+    if not u:
+        raise HTTPException(status_code=404, detail="User not found")
+    return u
+
 # --- Product endpoints ---
 @app.post("/products")
 def add_product(product: ProductIn):
@@ -191,6 +176,31 @@ def list_products():
     """Liste tous les produits actifs du catalogue.\n
     Retourne une liste de produits."""
     return catalog_svc.list_products()
+
+@app.get("/products/all")
+def list_all_products():
+    """Liste tous les produits du catalogue (admin).\n
+    Retourne une liste de produits."""
+    return catalog_svc.list_all_products()
+
+@app.put("/products/{product_id}")
+def update_product(product_id: str, product: ProductIn):
+    """Met à jour les informations d’un produit existant (admin)."""
+    existing = products.get(product_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail="Product not found")
+    
+    # Mise à jour simple
+    existing.name = product.name
+    existing.description = product.description
+    existing.price_cents = product.price_cents
+    existing.stock_qty = product.stock_qty
+    if product.active is not None:
+        existing.active = product.active if product.stock_qty > 0 else False
+    else:
+        existing.active = True if product.stock_qty > 0 else False
+    products.add(existing)
+    return existing
 
 @app.get("/products/{product_id}")
 def get_product(product_id: str):
@@ -281,6 +291,23 @@ def request_cancellation(user_id: str, order_id: str):
         return order
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    
+@app.post("/orders/admin/cancel")
+def admin_cancel_order(admin_user_id: str, order_id: str, user_id: str):
+    """
+    Annule une commande au nom du client (admin).
+    Params: admin_user_id, order_id, user_id
+    Retour: Order annulée & stock remis
+    """
+    try:
+        admin = users.get(admin_user_id)
+        if not admin or not admin.is_admin:
+            raise PermissionError("Droits insuffisants.")
+
+        order = order_svc.request_cancellation(user_id, order_id)
+        return order
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 # --- Backoffice endpoints ---
 @app.post("/orders/validate")
@@ -326,6 +353,33 @@ def backoffice_refund(admin_user_id: str, order_id: str, amount_cents: Optional[
         return order
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+    
+    
+@app.get("/orders/{order_id}/invoice")
+def get_order_invoice(order_id: str):
+    """
+    Retourne la facture liée à une commande.
+    Retour: Invoice ou erreur 404 si pas encore facturée.
+    """
+    order = orders.get(order_id)
+    if not order or not order.invoice_id:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+
+    inv = invoices.get(order.invoice_id)
+    return inv
+
+@app.get("/admin/orders")
+def admin_list_orders(admin_user_id: str):
+    """
+    Liste toutes les commandes (réservé aux admins).
+    Paramètre: admin_user_id (doit être un admin)
+    Retour : Toutes les commandes du système
+    """
+    admin = users.get(admin_user_id)
+    if not admin or not admin.is_admin:
+        raise HTTPException(status_code=403, detail="Accès réservé aux administrateurs")
+
+    return list(orders._by_id.values())
 
 # --- Invoice endpoints ---
 @app.get("/invoices/{invoice_id}")
@@ -367,7 +421,7 @@ def post_message(msg: MessageIn):
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-@app.delete("/threads/close")
+@app.post("/threads/close")
 def close_thread(thread_id: str, admin_user_id: str):
     """Ferme un fil de discussion (admin).\n
     Params: thread_id, admin_user_id\n
@@ -383,6 +437,30 @@ def list_threads(user_id: str):
     """Liste les fils de discussion d’un utilisateur.\n
     Retourne une liste de MessageThread."""
     return threads.list_by_user(user_id)
+
+@app.get("/threads/messages/{thread_id}")
+def get_thread_messages(thread_id: str):
+    """Retourne tous les messages d’un thread spécifique."""
+    thread = threads.get(thread_id)
+    if not thread:
+        raise HTTPException(status_code=404, detail="Thread introuvable")
+    return thread.messages
+
+@app.get("/admin/threads")
+def list_all_threads():
+    """Liste tous les fils de discussion (tickets) — réservé aux admins."""
+    return list(threads._by_id.values())
+
+@app.get("/admin/threads/{thread_id}/messages")
+def admin_get_thread_messages(thread_id: str):
+    """
+    Permet à l'admin de voir tous les messages d'un ticket.
+    Retour: liste des messages
+    """
+    thread = threads.get(thread_id)
+    if not thread:
+        raise HTTPException(status_code=404, detail="Thread not found")
+    return thread.messages
 
 # --- Utility endpoints ---
 @app.get("/status")
