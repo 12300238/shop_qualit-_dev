@@ -1,0 +1,23 @@
+version: "3.9"
+services:
+  api:
+    build: ./api
+    container_name: shop-api
+    ports:
+      - "8000:8000"
+    networks:
+      - shop-net
+
+  front:
+    build: ./front
+    container_name: shop-front
+    ports:
+      - "8501:8501"
+    depends_on:
+      - api
+    networks:
+      - shop-net
+
+networks:
+  shop-net:
+    driver: bridge
