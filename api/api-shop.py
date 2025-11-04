@@ -1,9 +1,9 @@
 import json
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from typing import List, Optional
 import uuid
-from shop import *
+from api.shop import *
 import os
 
 app = FastAPI(title="Shop API")
@@ -29,22 +29,19 @@ customer_svc = CustomerService(threads, users)
 
 # --- Chargement auto des données de test ---
 def load_test_data(json_path, users_repo, products_repo, carts_repo):
-    from shop import PasswordHasher, User, Product
+    from api.shop import PasswordHasher, User, Product
     if not os.path.exists(json_path):
         return
     with open(json_path, 'r') as f:
         data = json.load(f)
-    # Utilisateurs
     for u in data.get('users', []):
         u['password_hash'] = PasswordHasher.hash(u.pop('password'))
         user = User(**u)
         users_repo.add(user)
-    # Produits
     for p in data.get('products', []):
         product = Product(**p)
         products_repo.add(product)
 
-# Charge les données au démarrage
 load_test_data(os.path.join(os.path.dirname(__file__), 'test_data.json'), users, products, carts)
 
 # --- Models for API input/output ---
@@ -190,7 +187,6 @@ def update_product(product_id: str, product: ProductIn):
     if not existing:
         raise HTTPException(status_code=404, detail="Product not found")
     
-    # Mise à jour simple
     existing.name = product.name
     existing.description = product.description
     existing.price_cents = product.price_cents

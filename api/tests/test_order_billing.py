@@ -1,6 +1,6 @@
 import pytest
 import time
-from shop import Product, OrderStatus
+from api.shop import Product, OrderStatus
 
 
 def test_checkout_and_payment(services, users, products, sample_products):
@@ -212,7 +212,7 @@ def test_delivery_mark_delivered_and_refund_permission(services, users, products
 
 
 def test_delivery_service_mark_delivered_direct(services):
-    from shop import Order, OrderStatus, Delivery
+    from api.shop import Order, OrderStatus, Delivery
     delivery_svc = services['delivery_svc']
     # prepare a minimal order for delivery
     order = Order(id="od1", user_id="u1", items=[], status=OrderStatus.CREE, created_at=time.time())
@@ -224,7 +224,7 @@ def test_delivery_service_mark_delivered_direct(services):
 def test_checkout_fails_on_inactive_and_insufficient_stock(services, users, products):
     order_svc = services['order_svc']
     cs = services['cart_svc']
-    from shop import Product, CartItem
+    from api.shop import Product, CartItem
     user = services['auth'].register("chk@x.com", "pw", "A", "B", "addr")
     # inactive product
     p_in = Product(id="pin", name="PIN", description="d", price_cents=100, stock_qty=5, active=False)
@@ -245,7 +245,7 @@ def test_checkout_fails_on_inactive_and_insufficient_stock(services, users, prod
 def test_backoffice_validate_wrong_status_and_ship_user_missing(services, users, products):
     auth = services['auth']
     order_svc = services['order_svc']
-    from shop import Product, OrderStatus
+    from api.shop import Product, OrderStatus
     p = Product(id="bv1", name="BV", description="d", price_cents=100, stock_qty=5)
     products.add(p)
     admin = auth.register("bvadmin@x.com", "pw", "A", "B", "addr", is_admin=True)
@@ -268,7 +268,7 @@ def test_backoffice_validate_wrong_status_and_ship_user_missing(services, users,
 def test_backoffice_mark_delivered_success_and_refund_status_not_allowed(services, users, products):
     auth = services['auth']
     order_svc = services['order_svc']
-    from shop import Product, Delivery, OrderStatus
+    from api.shop import Product, Delivery, OrderStatus
     p = Product(id="md2", name="MD2", description="d", price_cents=100, stock_qty=5)
     products.add(p)
     admin = auth.register("markadm@x.com", "pw", "A", "B", "addr", is_admin=True)
@@ -311,7 +311,7 @@ def test_backoffice_ship_requires_admin(services, users, products):
 def test_checkout_stock_insufficient_branch(services, users, products):
     order_svc = services['order_svc']
     cs = services['cart_svc']
-    from shop import Product, CartItem
+    from api.shop import Product, CartItem
     user = services['auth'].register("stockchk@x.com", "pw", "A", "B", "addr")
     p = Product(id="stockzero", name="Z", description="d", price_cents=10, stock_qty=0, active=True)
     products.add(p)
@@ -383,3 +383,26 @@ def test_backoffice_mark_delivered_errors_and_permissions(services, users, produ
     # admin cannot mark delivered if not shipped
     with pytest.raises(ValueError):
         order_svc.backoffice_mark_delivered(admin.id, order.id)
+
+def test_checkout_deactivates_product_when_stock_zero(services, users, products):
+    """Couvre la branche où p.stock_qty <= 0 entraîne p.active = False."""
+    auth = services['auth']
+    cart_svc = services['cart_svc']
+    order_svc = services['order_svc']
+
+    # Produit avec stock exact égal à quantité commandée
+    from api.shop import Product
+    p = Product(id="deact", name="ZeroStock", description="d", price_cents=100, stock_qty=2)
+    products.add(p)
+
+    # Crée un utilisateur et ajoute au panier
+    user = auth.register("z@x.com", "pw", "A", "B", "addr")
+    cart_svc.add_to_cart(user.id, p.id, 2)
+
+    # Checkout : le stock passe de 2 à 0 → active = False
+    order = order_svc.checkout(user.id)
+
+    updated_p = products.get(p.id)
+    assert updated_p.stock_qty == 0
+    assert updated_p.active is False
+    assert order.items[0].product_id == p.id

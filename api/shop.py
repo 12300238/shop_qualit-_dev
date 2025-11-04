@@ -6,21 +6,9 @@ import uuid
 import time
 
 
-class OrderStatus(Enum):
-    """Enum représentant les différents statuts possibles d'une commande.
-
-    Valeurs:
-        CREE, VALIDEE, PAYEE, EXPEDIEE, LIVREE, ANNULEE, REMBOURSEE
-    """
-    CREE = auto()
-    VALIDEE = auto()
-    PAYEE = auto()
-    EXPEDIEE = auto()
-    LIVREE = auto()
-    ANNULEE = auto()
-    REMBOURSEE = auto()
-
-
+# ==========================================================
+# 🧑‍💼 GESTION UTILISATEURS
+# ==========================================================
 
 @dataclass
 class User:
@@ -50,7 +38,105 @@ class User:
             if hasattr(self, k) and k not in {"id", "email", "is_admin", "password_hash"}:
                 setattr(self, k, v)
 
+class UserRepository:
+    """Repository en mémoire pour les objets `User`.
 
+    Indexe par id et par email (insensible à la casse).
+    """
+    def __init__(self):
+        self._by_id: Dict[str, User] = {}
+        self._by_email: Dict[str, User] = {}
+
+    def add(self, user: User):
+        """Ajoute ou remplace un utilisateur dans le repository."""
+        self._by_id[user.id] = user
+        self._by_email[user.email.lower()] = user
+
+    def get(self, user_id: str) -> Optional[User]:
+        """Retourne l'utilisateur par identifiant ou None si introuvable."""
+        return self._by_id.get(user_id)
+
+    def get_by_email(self, email: str) -> Optional[User]:
+        """Retourne l'utilisateur par email (insensible à la casse)."""
+        return self._by_email.get(email.lower())
+    
+class PasswordHasher:
+    """Outils de hachage/verification de mot de passe.
+    """
+    @staticmethod
+    def hash(password: str) -> str:
+        return f"sha256::{hash(password)}"
+
+    @staticmethod
+    def verify(password: str, stored_hash: str) -> bool:
+        """Vérifie si le mot de passe correspond au haché stocké."""
+        return PasswordHasher.hash(password) == stored_hash
+    
+class SessionManager:
+    """Gestion simple de sessions en mémoire.
+
+    Stocke un mapping token -> user_id.
+    """
+    def __init__(self):
+        self._sessions: Dict[str, str] = {}
+
+    def create_session(self, user_id: str) -> str:
+        """Crée une session pour l'utilisateur et retourne le token."""
+        token = str(uuid.uuid4())
+        self._sessions[token] = user_id
+        return token
+
+    def destroy_session(self, token: str):
+        """Détruit la session associée au token (si existe)."""
+        self._sessions.pop(token, None)
+
+    def get_user_id(self, token: str) -> Optional[str]:
+        """Retourne l'user_id associé au token ou None."""
+        return self._sessions.get(token)
+
+class AuthService:
+    """Service d'authentification: inscription/login/logout.
+
+    Utilise `UserRepository` et `SessionManager`.
+    """
+    def __init__(self, users: UserRepository, sessions: SessionManager):
+        self.users = users
+        self.sessions = sessions
+
+    def register(self, email: str, password: str, first_name: str, last_name: str, address: str, is_admin: bool=False) -> User:
+        """Enregistre un nouvel utilisateur et retourne l'objet `User`.
+
+        Lève ValueError si l'email est déjà utilisé.
+        """
+        if self.users.get_by_email(email):
+            raise ValueError("Email déjà utilisé.")
+        user = User(
+            id=str(uuid.uuid4()),
+            email=email,
+            password_hash=PasswordHasher.hash(password),
+            first_name=first_name,
+            last_name=last_name,
+            address=address,
+            is_admin=is_admin
+        )
+        self.users.add(user)
+        return user
+
+    def login(self, email: str, password: str) -> str:
+        """Vérifie les identifiants et crée une session. Retourne le token."""
+        user = self.users.get_by_email(email)
+        if not user or not PasswordHasher.verify(password, user.password_hash):
+            raise ValueError("Identifiants invalides.")
+        return self.sessions.create_session(user.id)
+
+    def logout(self, token: str):
+        """Déconnecte la session identifiée par le token."""
+        self.sessions.destroy_session(token)
+
+
+# ==========================================================
+# 🛒 CATALOGUE & PANIER
+# ==========================================================
 
 @dataclass
 class Product:
@@ -65,15 +151,48 @@ class Product:
     stock_qty: int
     active: bool = True
 
+class ProductRepository:
+    """Repository en mémoire des produits disponibles."""
+    def __init__(self):
+        self._by_id: Dict[str, Product] = {}
+
+    def add(self, product: Product):
+        """Ajoute ou met à jour un produit."""
+        self._by_id[product.id] = product
+
+    def get(self, product_id: str) -> Optional[Product]:
+        """Retourne le produit par identifiant ou None."""
+        return self._by_id.get(product_id)
+
+    def list_active(self) -> List[Product]:
+        """Liste tous les produits actifs."""
+        return [p for p in self._by_id.values() if p.active]
+    
+    def list_all(self) -> List[Product]:
+        """Liste tous les produits, actifs ou non."""
+        return list(self._by_id.values())
+
+    def reserve_stock(self, product_id: str, qty: int):
+        """Réserve (débite) `qty` unités du stock d'un produit.
+
+        Lève ValueError si produit introuvable ou stock insuffisant.
+        """
+        p = self.get(product_id)
+        if not p or p.stock_qty < qty:
+            raise ValueError("Stock insuffisant.")
+        p.stock_qty -= qty
+
+    def release_stock(self, product_id: str, qty: int):
+        """Remet `qty` unités en stock pour le produit donné (si trouvé)."""
+        p = self.get(product_id)
+        if p:
+            p.stock_qty += qty
 
 @dataclass
 class CartItem:
     """Element simple d'un panier: référence produit + quantité."""
     product_id: str
     quantity: int
-
-
-
 
 @dataclass
 class Cart:
@@ -82,7 +201,7 @@ class Cart:
     Fournit ajout/suppression/vidage et calcul du total en centimes.
     """
     user_id: str
-    items: Dict[str, CartItem] = field(default_factory=dict)  # key: product_id
+    items: Dict[str, CartItem] = field(default_factory=dict)
 
 
     def add(self, product: Product, qty: int = 1):
@@ -138,78 +257,77 @@ class Cart:
                 continue
             total += p.price_cents * it.quantity
         return total
+    
+class CartRepository:
+    """Repository en mémoire pour les paniers utilisateurs."""
+    def __init__(self):
+        self._by_user: Dict[str, Cart] = {}
 
+    def get_or_create(self, user_id: str) -> Cart:
+        """Retourne le panier de l'utilisateur, en crée un si nécessaire."""
+        if user_id not in self._by_user:
+            self._by_user[user_id] = Cart(user_id=user_id)
+        return self._by_user[user_id]
 
+    def clear(self, user_id: str):
+        """Vide le panier de l'utilisateur donné."""
+        self.get_or_create(user_id).clear()
 
-@dataclass
-class InvoiceLine:
-    """Ligne de facture: description d'un item facturé."""
-    product_id: str
-    name: str
-    unit_price_cents: int
-    quantity: int
-    line_total_cents: int
+class CatalogService:
+    """Service simple pour exposer le catalogue de produits."""
+    def __init__(self, products: ProductRepository):
+        self.products = products
 
+    def list_products(self) -> List[Product]:
+        """Retourne la liste des produits actifs."""
+        return self.products.list_active()
+    
+    def list_all_products(self) -> List[Product]:
+        """Retourne la liste de tous les produits, actifs ou non."""
+        return self.products.list_all()
+    
+class CartService:
+    """Service de gestion du panier côté application/logique métier."""
+    def __init__(self, carts: CartRepository, products: ProductRepository):
+        self.carts = carts
+        self.products = products
 
-@dataclass
-class Invoice:
-    """Document de facturation lié à une commande.
+    def add_to_cart(self, user_id: str, product_id: str, qty: int = 1):
+        """Ajoute `qty` du produit au panier de l'utilisateur."""
+        product = self.products.get(product_id)
+        if not product:
+            raise ValueError("Produit introuvable.")
+        self.carts.get_or_create(user_id).add(product, qty)
 
-    Contient les lignes de facturation et le montant total en centimes.
+    def remove_from_cart(self, user_id: str, product_id: str, qty: int = 1):
+        """Retire `qty` du produit du panier de l'utilisateur."""
+        self.carts.get_or_create(user_id).remove(product_id, qty)
+
+    def view_cart(self, user_id: str) -> Cart:
+        """Retourne l'objet `Cart` de l'utilisateur."""
+        return self.carts.get_or_create(user_id)
+
+    def cart_total(self, user_id: str) -> int:
+        """Calcule le total du panier (en centimes)."""
+        return self.carts.get_or_create(user_id).total_cents(self.products)
+    
+# ==========================================================
+# 📦 COMMANDES / PAIEMENTS / LIVRAISON / FACTURATION
+# ==========================================================
+
+class OrderStatus(Enum):
+    """Enum représentant les différents statuts possibles d'une commande.
+
+    Valeurs:
+        CREE, VALIDEE, PAYEE, EXPEDIEE, LIVREE, ANNULEE, REMBOURSEE
     """
-    id: str
-    order_id: str
-    user_id: str
-    lines: List[InvoiceLine]
-    total_cents: int
-    issued_at: float  # epoch timestamp
-
-
-@dataclass
-class Payment:
-    """Enregistrement d'un paiement effectué pour une commande."""
-    id: str
-    order_id: str
-    user_id: str
-    amount_cents: int
-    provider: str  # ex: "CB"
-    provider_ref: Optional[str]
-    succeeded: bool
-    created_at: float
-
-
-@dataclass
-class Delivery:
-    """Informations sur une expédition (transporteur, tracking, adresse, statut)."""
-    id: str
-    order_id: str
-    carrier: str
-    tracking_number: Optional[str]
-    address: str
-    status: str  # ex: "PREPAREE", "EN_COURS", "LIVREE"
-
-
-@dataclass
-class MessageThread:
-    """Fil de discussion support/utilisateur lié optionnellement à une commande."""
-    id: str
-    user_id: str
-    order_id: Optional[str]
-    subject: str
-    messages: List["Message"] = field(default_factory=list)
-    closed: bool = False
-    created_at: float = field(default_factory=time.time)
-
-
-@dataclass
-class Message:
-    """Message individuel dans un `MessageThread`."""
-    id: str
-    thread_id: str
-    author_user_id: Optional[str]  # None = agent support
-    body: str
-    created_at: float
-
+    CREE = auto()
+    VALIDEE = auto()
+    PAYEE = auto()
+    EXPEDIEE = auto()
+    LIVREE = auto()
+    ANNULEE = auto()
+    REMBOURSEE = auto()
 
 @dataclass
 class OrderItem:
@@ -218,7 +336,6 @@ class OrderItem:
     name: str
     unit_price_cents: int
     quantity: int
-
 
 @dataclass
 class Order:
@@ -244,86 +361,7 @@ class Order:
 
     def total_cents(self) -> int:
         return sum(i.unit_price_cents * i.quantity for i in self.items)
-
-
-# Repositories
-class UserRepository:
-    """Repository en mémoire pour les objets `User`.
-
-    Indexe par id et par email (insensible à la casse).
-    """
-    def __init__(self):
-        self._by_id: Dict[str, User] = {}
-        self._by_email: Dict[str, User] = {}
-
-    def add(self, user: User):
-        """Ajoute ou remplace un utilisateur dans le repository."""
-        self._by_id[user.id] = user
-        self._by_email[user.email.lower()] = user
-
-    def get(self, user_id: str) -> Optional[User]:
-        """Retourne l'utilisateur par identifiant ou None si introuvable."""
-        return self._by_id.get(user_id)
-
-    def get_by_email(self, email: str) -> Optional[User]:
-        """Retourne l'utilisateur par email (insensible à la casse)."""
-        return self._by_email.get(email.lower())
-
-
-class ProductRepository:
-    """Repository en mémoire des produits disponibles."""
-    def __init__(self):
-        self._by_id: Dict[str, Product] = {}
-
-    def add(self, product: Product):
-        """Ajoute ou met à jour un produit."""
-        self._by_id[product.id] = product
-
-    def get(self, product_id: str) -> Optional[Product]:
-        """Retourne le produit par identifiant ou None."""
-        return self._by_id.get(product_id)
-
-    def list_active(self) -> List[Product]:
-        """Liste tous les produits actifs."""
-        return [p for p in self._by_id.values() if p.active]
     
-    def list_all(self) -> List[Product]:
-        """Liste tous les produits, actifs ou non."""
-        return list(self._by_id.values())
-
-    def reserve_stock(self, product_id: str, qty: int):
-        """Réserve (débite) `qty` unités du stock d'un produit.
-
-        Lève ValueError si produit introuvable ou stock insuffisant.
-        """
-        p = self.get(product_id)
-        if not p or p.stock_qty < qty:
-            raise ValueError("Stock insuffisant.")
-        p.stock_qty -= qty
-
-    def release_stock(self, product_id: str, qty: int):
-        """Remet `qty` unités en stock pour le produit donné (si trouvé)."""
-        p = self.get(product_id)
-        if p:
-            p.stock_qty += qty
-
-
-class CartRepository:
-    """Repository en mémoire pour les paniers utilisateurs."""
-    def __init__(self):
-        self._by_user: Dict[str, Cart] = {}
-
-    def get_or_create(self, user_id: str) -> Cart:
-        """Retourne le panier de l'utilisateur, en crée un si nécessaire."""
-        if user_id not in self._by_user:
-            self._by_user[user_id] = Cart(user_id=user_id)
-        return self._by_user[user_id]
-
-    def clear(self, user_id: str):
-        """Vide le panier de l'utilisateur donné."""
-        self.get_or_create(user_id).clear()
-
-
 class OrderRepository:
     """Repository en mémoire pour les commandes."""
     def __init__(self):
@@ -347,6 +385,27 @@ class OrderRepository:
         """Met à jour une commande existante (ou la remplace)."""
         self._by_id[order.id] = order
 
+@dataclass
+class InvoiceLine:
+    """Ligne de facture: description d'un item facturé."""
+    product_id: str
+    name: str
+    unit_price_cents: int
+    quantity: int
+    line_total_cents: int
+
+@dataclass
+class Invoice:
+    """Document de facturation lié à une commande.
+
+    Contient les lignes de facturation et le montant total en centimes.
+    """
+    id: str
+    order_id: str
+    user_id: str
+    lines: List[InvoiceLine]
+    total_cents: int
+    issued_at: float
 
 class InvoiceRepository:
     """Repository en mémoire pour les factures."""
@@ -360,7 +419,18 @@ class InvoiceRepository:
     def get(self, invoice_id: str) -> Optional[Invoice]:
         """Retourne la facture par identifiant ou None."""
         return self._by_id.get(invoice_id)
-
+    
+@dataclass
+class Payment:
+    """Enregistrement d'un paiement effectué pour une commande."""
+    id: str
+    order_id: str
+    user_id: str
+    amount_cents: int
+    provider: str
+    provider_ref: Optional[str]
+    succeeded: bool
+    created_at: float
 
 class PaymentRepository:
     """Repository en mémoire pour les paiements."""
@@ -374,172 +444,16 @@ class PaymentRepository:
     def get(self, payment_id: str) -> Optional[Payment]:
         """Retourne le paiement par identifiant ou None."""
         return self._by_id.get(payment_id)
-
-
-class ThreadRepository:
-    """Repository des fils de discussion / tickets de support."""
-    def __init__(self):
-        self._by_id: Dict[str, MessageThread] = {}
-
-    def add(self, thread: MessageThread):
-        """Ajoute un fil de discussion."""
-        self._by_id[thread.id] = thread
-
-    def get(self, thread_id: str) -> Optional[MessageThread]:
-        """Récupère un fil par identifiant."""
-        return self._by_id.get(thread_id)
-
-    def list_by_user(self, user_id: str) -> List[MessageThread]:
-        """Liste les fils appartenant à un utilisateur."""
-        return [t for t in self._by_id.values() if t.user_id == user_id]
-
-
-class PasswordHasher:
-    """Outils de hachage/verification de mot de passe.
-
-    NOTE: méthode de hachage simpliste; remplacer par bcrypt/argon2 en production.
-    """
-    @staticmethod
-    def hash(password: str) -> str:
-        # Simple (à remplacer par bcrypt/argon2)
-        return f"sha256::{hash(password)}"
-
-    @staticmethod
-    def verify(password: str, stored_hash: str) -> bool:
-        """Vérifie si le mot de passe correspond au haché stocké."""
-        return PasswordHasher.hash(password) == stored_hash
-
-
-class SessionManager:
-    """Gestion simple de sessions en mémoire.
-
-    Stocke un mapping token -> user_id.
-    """
-    def __init__(self):
-        self._sessions: Dict[str, str] = {}  # token -> user_id
-
-    def create_session(self, user_id: str) -> str:
-        """Crée une session pour l'utilisateur et retourne le token."""
-        token = str(uuid.uuid4())
-        self._sessions[token] = user_id
-        return token
-
-    def destroy_session(self, token: str):
-        """Détruit la session associée au token (si existe)."""
-        self._sessions.pop(token, None)
-
-    def get_user_id(self, token: str) -> Optional[str]:
-        """Retourne l'user_id associé au token ou None."""
-        return self._sessions.get(token)
-
-
-class AuthService:
-    """Service d'authentification: inscription/login/logout.
-
-    Utilise `UserRepository` et `SessionManager`.
-    """
-    def __init__(self, users: UserRepository, sessions: SessionManager):
-        self.users = users
-        self.sessions = sessions
-
-    def register(self, email: str, password: str, first_name: str, last_name: str, address: str, is_admin: bool=False) -> User:
-        """Enregistre un nouvel utilisateur et retourne l'objet `User`.
-
-        Lève ValueError si l'email est déjà utilisé.
-        """
-        if self.users.get_by_email(email):
-            raise ValueError("Email déjà utilisé.")
-        user = User(
-            id=str(uuid.uuid4()),
-            email=email,
-            password_hash=PasswordHasher.hash(password),
-            first_name=first_name,
-            last_name=last_name,
-            address=address,
-            is_admin=is_admin
-        )
-        self.users.add(user)
-        return user
-
-    def login(self, email: str, password: str) -> str:
-        """Vérifie les identifiants et crée une session. Retourne le token."""
-        user = self.users.get_by_email(email)
-        if not user or not PasswordHasher.verify(password, user.password_hash):
-            raise ValueError("Identifiants invalides.")
-        return self.sessions.create_session(user.id)
-
-    def logout(self, token: str):
-        """Déconnecte la session identifiée par le token."""
-        self.sessions.destroy_session(token)
-
-
-class CatalogService:
-    """Service simple pour exposer le catalogue de produits."""
-    def __init__(self, products: ProductRepository):
-        self.products = products
-
-    def list_products(self) -> List[Product]:
-        """Retourne la liste des produits actifs."""
-        return self.products.list_active()
     
-    def list_all_products(self) -> List[Product]:
-        """Retourne la liste de tous les produits, actifs ou non."""
-        return self.products.list_all()
-
-
-class CartService:
-    """Service de gestion du panier côté application/logique métier."""
-    def __init__(self, carts: CartRepository, products: ProductRepository):
-        self.carts = carts
-        self.products = products
-
-    def add_to_cart(self, user_id: str, product_id: str, qty: int = 1):
-        """Ajoute `qty` du produit au panier de l'utilisateur."""
-        product = self.products.get(product_id)
-        if not product:
-            raise ValueError("Produit introuvable.")
-        self.carts.get_or_create(user_id).add(product, qty)
-
-    def remove_from_cart(self, user_id: str, product_id: str, qty: int = 1):
-        """Retire `qty` du produit du panier de l'utilisateur."""
-        self.carts.get_or_create(user_id).remove(product_id, qty)
-
-    def view_cart(self, user_id: str) -> Cart:
-        """Retourne l'objet `Cart` de l'utilisateur."""
-        return self.carts.get_or_create(user_id)
-
-    def cart_total(self, user_id: str) -> int:
-        """Calcule le total du panier (en centimes)."""
-        return self.carts.get_or_create(user_id).total_cents(self.products)
-
-
-class PaymentGateway:
-    """Simulation d'un prestataire de paiement (mock).
-
-    Méthodes:
-        charge_card(...): tente de débiter une carte (mock)
-        refund(...): simule un remboursement
-    """
-    def charge_card(self, card_number: str, exp_month: int, exp_year: int, cvc: str, amount_cents: int, idempotency_key: str) -> Dict:
-        """Tente de débiter la carte et retourne un dict résultat.
-
-        La simulation renvoie success=False si le numéro finit par '0000'.
-        """
-        # MOCK: succès si carte ne finit pas par '0000'
-        ok = not card_number.endswith("0000")
-        return {
-            "success": ok,
-            "transaction_id": str(uuid.uuid4()) if ok else None,
-            "failure_reason": None if ok else "CARTE_REFUSEE"
-        }
-
-    def refund(self, transaction_id: str, amount_cents: int) -> Dict:
-        """Simule un remboursement et retourne les métadonnées du refund."""
-        return {
-            "success": True,
-            "refund_id": str(uuid.uuid4())
-        }
-
+@dataclass
+class Delivery:
+    """Informations sur une expédition (transporteur, tracking, adresse, statut)."""
+    id: str
+    order_id: str
+    carrier: str
+    tracking_number: Optional[str]
+    address: str
+    status: str
 
 class BillingService:
     """Service responsable de la création et stockage des factures."""
@@ -574,8 +488,33 @@ class BillingService:
         )
         self.invoices.add(inv)
         return inv
+    
+class PaymentGateway:
+    """Simulation d'un prestataire de paiement (mock).
 
+    Méthodes:
+        charge_card(...): tente de débiter une carte (mock)
+        refund(...): simule un remboursement
+    """
+    def charge_card(self, card_number: str, exp_month: int, exp_year: int, cvc: str, amount_cents: int, idempotency_key: str) -> Dict:
+        """Tente de débiter la carte et retourne un dict résultat.
 
+        La simulation renvoie success=False si le numéro finit par '0000'.
+        """
+        ok = not card_number.endswith("0000")
+        return {
+            "success": ok,
+            "transaction_id": str(uuid.uuid4()) if ok else None,
+            "failure_reason": None if ok else "CARTE_REFUSEE"
+        }
+
+    def refund(self, transaction_id: str, amount_cents: int) -> Dict:
+        """Simule un remboursement et retourne les métadonnées du refund."""
+        return {
+            "success": True,
+            "refund_id": str(uuid.uuid4())
+        }
+    
 class DeliveryService:
     """Service minimal pour préparer/expédier/marquer comme livré une livraison."""
     def prepare_delivery(self, order: Order, address: str, carrier: str = "POSTE") -> Delivery:
@@ -600,8 +539,7 @@ class DeliveryService:
         """Marque la livraison comme livrée."""
         delivery.status = "LIVREE"
         return delivery
-
-
+    
 class OrderService:
     """Service principal d'orchestration des commandes (checkout, paiement, backoffice)."""
     def __init__(
@@ -626,8 +564,6 @@ class OrderService:
         self.gateway = gateway
         self.users = users
 
-    # ----- Opérations publiques -----
-
     def checkout(self, user_id: str) -> Order:
         """Crée une commande à partir du panier de l'utilisateur.
 
@@ -636,7 +572,6 @@ class OrderService:
         cart = self.carts.get_or_create(user_id)
         if not cart.items:
             raise ValueError("Panier vide.")
-        # Réserver le stock
         order_items: List[OrderItem] = []
         for it in cart.items.values():
             p = self.products.get(it.product_id)
@@ -661,7 +596,6 @@ class OrderService:
             created_at=time.time()
         )
         self.orders.add(order)
-        # vider le panier
         self.carts.clear(user_id)
         return order
 
@@ -695,7 +629,6 @@ class OrderService:
         order.payment_id = payment.id
         order.status = OrderStatus.PAYEE
         order.paid_at = time.time()
-        # Facture
         inv = self.billing.issue_invoice(order)
         order.invoice_id = inv.id
         self.orders.update(order)
@@ -714,13 +647,10 @@ class OrderService:
             raise ValueError("Trop tard pour annuler : commande expédiée.")
         order.status = OrderStatus.ANNULEE
         order.cancelled_at = time.time()
-        # restituer le stock
         for it in order.items:
             self.products.release_stock(it.product_id, it.quantity)
         self.orders.update(order)
         return order
-
-    # ----- Opérations backoffice (admin) -----
 
     def backoffice_validate_order(self, admin_user_id: str, order_id: str) -> Order:
         """Validation manuelle d'une commande par un administrateur."""
@@ -777,20 +707,58 @@ class OrderService:
         if not order or order.status not in {OrderStatus.PAYEE, OrderStatus.ANNULEE}:
             raise ValueError("Remboursement non autorisé au statut actuel.")
         amount = amount_cents or order.total_cents()
-        # remboursement via le PSP mock
         payment = self.payments.get(order.payment_id) if order.payment_id else None
         if not payment or not payment.provider_ref:
             raise ValueError("Aucun paiement initial.")
         self.gateway.refund(payment.provider_ref, amount)
         order.status = OrderStatus.REMBOURSEE
         order.refunded_at = time.time()
-        # restituer le stock si besoin
         for it in order.items:
             self.products.release_stock(it.product_id, it.quantity)
         self.orders.update(order)
         return order
+    
+# ==========================================================
+# 🎫 SUPPORT CLIENT / TICKETS
+# ==========================================================
 
+@dataclass
+class MessageThread:
+    """Fil de discussion support/utilisateur lié optionnellement à une commande."""
+    id: str
+    user_id: str
+    order_id: Optional[str]
+    subject: str
+    messages: List["Message"] = field(default_factory=list)
+    closed: bool = False
+    created_at: float = field(default_factory=time.time)
 
+@dataclass
+class Message:
+    """Message individuel dans un `MessageThread`."""
+    id: str
+    thread_id: str
+    author_user_id: Optional[str]
+    body: str
+    created_at: float
+
+class ThreadRepository:
+    """Repository des fils de discussion / tickets de support."""
+    def __init__(self):
+        self._by_id: Dict[str, MessageThread] = {}
+
+    def add(self, thread: MessageThread):
+        """Ajoute un fil de discussion."""
+        self._by_id[thread.id] = thread
+
+    def get(self, thread_id: str) -> Optional[MessageThread]:
+        """Récupère un fil par identifiant."""
+        return self._by_id.get(thread_id)
+
+    def list_by_user(self, user_id: str) -> List[MessageThread]:
+        """Liste les fils appartenant à un utilisateur."""
+        return [t for t in self._by_id.values() if t.user_id == user_id]
+    
 class CustomerService:
     """Service support client: gestion des fils de discussion et messages."""
     def __init__(self, threads: ThreadRepository, users: UserRepository):

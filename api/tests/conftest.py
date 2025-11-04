@@ -1,17 +1,15 @@
 import pytest
-import time
 import uuid
 import os
 import sys
-from typing import Generator
 
 # Ensure project root is on sys.path so tests can import `shop` even when pytest
 # is run from outside the virtualenv or with a different working directory.
-ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-from shop import (
+from api.shop import (
     UserRepository, ProductRepository, CartRepository, OrderRepository,
     InvoiceRepository, PaymentRepository, ThreadRepository,
     SessionManager, AuthService, CatalogService, CartService,

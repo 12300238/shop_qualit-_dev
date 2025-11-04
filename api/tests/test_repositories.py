@@ -1,5 +1,5 @@
 import pytest
-from shop import User, Product
+from api.shop import User, Product, ProductRepository, CatalogService
 
 
 def test_user_repository_basic(users):
@@ -21,7 +21,7 @@ def test_product_repository_and_stock(products):
 
 
 def test_cart_repository(carts, products):
-    from shop import Product
+    from api.shop import Product
     p = Product(id="p2", name="PX", description="d", price_cents=500, stock_qty=3)
     products.add(p)
     cart = carts.get_or_create("u1")
@@ -62,3 +62,59 @@ def test_reserve_release_edge_cases(products):
     # reserve negative currently increases stock (implementation subtracts qty)
     products.reserve_stock("p4", -1)
     assert products.get("p4").stock_qty == 3
+
+@pytest.fixture
+def sample_products():
+    """Crée un jeu de produits pour les tests."""
+    return [
+        Product(id="p1", name="Laptop", description="PC portable", price_cents=100000, stock_qty=10, active=True),
+        Product(id="p2", name="Mouse", description="Souris USB", price_cents=2000, stock_qty=50, active=False),
+        Product(id="p3", name="Keyboard", description="Clavier mécanique", price_cents=5000, stock_qty=20, active=True),
+    ]
+
+
+@pytest.fixture
+def product_repo(sample_products):
+    """Crée un ProductRepository pré-rempli."""
+    repo = ProductRepository()
+    for p in sample_products:
+        repo.add(p)
+    return repo
+
+
+# ==========================================================
+# 🔍 Tests de ProductRepository.list_all
+# ==========================================================
+
+def test_list_all_returns_all_products(product_repo, sample_products):
+    """Vérifie que list_all retourne tous les produits (actifs ou non)."""
+    products = product_repo.list_all()
+    assert isinstance(products, list)
+    assert len(products) == len(sample_products)
+    ids = {p.id for p in products}
+    assert ids == {p.id for p in sample_products}
+
+
+def test_list_all_empty_repo_returns_empty_list():
+    """Vérifie qu'un repo vide retourne une liste vide."""
+    repo = ProductRepository()
+    products = repo.list_all()
+    assert products == []
+
+
+# ==========================================================
+# 🛍️ Tests de CatalogService.list_all_products
+# ==========================================================
+
+def test_list_all_products_delegates_to_repository(product_repo, sample_products):
+    """Vérifie que CatalogService.list_all_products retourne la même chose que list_all."""
+    service = CatalogService(product_repo)
+    products = service.list_all_products()
+    assert len(products) == len(sample_products)
+    assert {p.id for p in products} == {p.id for p in sample_products}
+
+
+def test_list_all_products_with_empty_repo():
+    """Vérifie que le service retourne une liste vide quand le repo est vide."""
+    service = CatalogService(ProductRepository())
+    assert service.list_all_products() == []

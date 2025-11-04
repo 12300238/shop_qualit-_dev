@@ -1,5 +1,5 @@
 import pytest
-from shop import Product
+from api.shop import Product
 
 
 def test_auth_register_login_logout(services, users, sessions):
@@ -36,7 +36,7 @@ def test_checkout_empty_cart_raises(services):
 
 
 def test_password_hasher_and_sessions(users, sessions):
-    from shop import PasswordHasher
+    from api.shop import PasswordHasher
     ph = PasswordHasher
     h = ph.hash("secret")
     assert isinstance(h, str) and "sha256::" in h
@@ -52,7 +52,7 @@ def test_password_hasher_and_sessions(users, sessions):
 def test_cart_with_inactive_product(services, products):
     cart_svc = services['cart_svc']
     # add inactive product
-    from shop import Product
+    from api.shop import Product
     p = Product(id="ix", name="I", description="d", price_cents=100, stock_qty=5, active=False)
     products.add(p)
     with pytest.raises(ValueError):
@@ -95,7 +95,7 @@ def test_pay_by_card_order_not_found_raises(services):
 
 def test_cart_remove_and_total_edge_cases(services, products):
     # setup product and cart
-    from shop import Product
+    from api.shop import Product
     p = Product(id="p_rm", name="RM", description="d", price_cents=250, stock_qty=5)
     products.add(p)
     cs = services['cart_svc']
@@ -113,7 +113,7 @@ def test_cart_remove_and_total_edge_cases(services, products):
 
 
 def test_cart_total_with_missing_and_inactive(services, products):
-    from shop import Product
+    from api.shop import Product
     p1 = Product(id="tot1", name="T1", description="d", price_cents=100, stock_qty=5)
     p2 = Product(id="tot2", name="T2", description="d", price_cents=200, stock_qty=5, active=False)
     products.add(p1)
@@ -121,7 +121,7 @@ def test_cart_total_with_missing_and_inactive(services, products):
     uid = "u_tot"
     cs = services['cart_svc']
     # simulate items in cart directly (add_to_cart rejects inactive products)
-    from shop import CartItem
+    from api.shop import CartItem
     cart = cs.view_cart(uid)
     cart.items[p1.id] = CartItem(product_id=p1.id, quantity=1)
     cart.items[p2.id] = CartItem(product_id=p2.id, quantity=1)
@@ -134,7 +134,7 @@ def test_cart_total_with_missing_and_inactive(services, products):
 
 def test_cart_add_existing_and_remove_delete(services, products):
     # ensure adding existing increases quantity branch (line ~109)
-    from shop import Product
+    from api.shop import Product
     p = Product(id="p_exist", name="E", description="d", price_cents=100, stock_qty=5)
     products.add(p)
     cs = services['cart_svc']
@@ -147,7 +147,7 @@ def test_cart_add_existing_and_remove_delete(services, products):
 
 def test_cart_remove_entire_entry_when_qty_le_zero(services, products):
     # exercise Cart.remove branch where qty <=0 deletes the entry (line ~121)
-    from shop import Product
+    from api.shop import Product
     p = Product(id="p_rm2", name="R2", description="d", price_cents=50, stock_qty=5)
     products.add(p)
     cs = services['cart_svc']
@@ -158,7 +158,7 @@ def test_cart_remove_entire_entry_when_qty_le_zero(services, products):
 
 
 def test_cart_add_raises_when_not_enough_stock(services, products):
-    from shop import Product
+    from api.shop import Product
     p = Product(id="p_low", name="Low", description="d", price_cents=100, stock_qty=1)
     products.add(p)
     cs = services['cart_svc']
@@ -168,7 +168,7 @@ def test_cart_add_raises_when_not_enough_stock(services, products):
 
 
 def test_cart_remove_deletes_when_quantity_becomes_zero(services, products):
-    from shop import Product
+    from api.shop import Product
     p = Product(id="p_zero", name="Z", description="d", price_cents=10, stock_qty=5)
     products.add(p)
     cs = services['cart_svc']
@@ -181,7 +181,7 @@ def test_cart_remove_deletes_when_quantity_becomes_zero(services, products):
 
 def test_catalog_list_products_returns_only_active(services, products):
     catalog = services['catalog']
-    from shop import Product
+    from api.shop import Product
     a = Product(id="cat1", name="A", description="d", price_cents=10, stock_qty=1, active=True)
     b = Product(id="cat2", name="B", description="d", price_cents=20, stock_qty=1, active=False)
     products.add(a)

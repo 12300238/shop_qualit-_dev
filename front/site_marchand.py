@@ -5,12 +5,13 @@ import datetime
 import re
 import json
 
-API_URL = "http://api:8000"
+API_URL = "http://localhost:8000"
 
+# --- Configuration de la page principale ---
 st.set_page_config(page_title="Shop Frontend", layout="wide")
 st.title("🛍️ Boutique en ligne")
 
-# --- Initialisation du state ---
+# --- Initialisation de l’état utilisateur (session) ---
 if "token" not in st.session_state:
     st.session_state["token"] = None
 if "user_id" not in st.session_state:
@@ -20,11 +21,12 @@ if "is_admin" not in st.session_state:
 if "users" not in st.session_state:
     st.session_state["users"] = None
 
-# --- Barre latérale ---
+# --- Barre latérale / Menu principal ---
 with st.sidebar:
     menu_options = ["Accueil", "Profil", "Panier", "Commandes", "Support"]
     menu_icons = ["house", "person", "cart", "truck", "chat"]
 
+    # Si l’utilisateur est administrateur, on ajoute le menu “Admin”
     if st.session_state.get("is_admin", False):
         menu_options.append("Admin")
         menu_icons.append("tools")
@@ -39,22 +41,25 @@ with st.sidebar:
 
 page = selected
 
-# ------------------------------------------------------
-#  PAGE : PROFIL (remplace "Connexion")
-# ------------------------------------------------------
+
+# ======================================================
+#  PAGE : PROFIL — Connexion, inscription, modification
+# ======================================================
 if page == "Profil":
     st.subheader("👤 Mon profil")
 
-    # ✅ Si pas connecté → connexion + inscription
+    # --- SECTION CONNEXION UTILISATEUR ---
     if not st.session_state["token"]:
         with st.expander("Connexion"):
             email_login = st.text_input("Email", key="login_email")
             pwd_login = st.text_input("Mot de passe", type="password", key="login_password")
 
+            # --- Bouton de connexion ---
             if st.button("Se connecter"):
                 payload = {"email": email_login, "password": pwd_login,
                            "first_name": "", "last_name": "", "address": ""}
                 r = requests.post(f"{API_URL}/users/login", json=payload)
+
                 if r.status_code == 200:
                     token = r.json()["token"]
                     user_obj = requests.get(f"{API_URL}/users_id/{email_login}").json()
@@ -71,7 +76,7 @@ if page == "Profil":
 
         st.divider()
 
-        # ✅ Formulaire d’inscription
+        # --- FORMULAIRE D’INSCRIPTION ---
         with st.expander("Créer un compte"):
             email_reg = st.text_input("Email")
             pwd_reg = st.text_input("Mot de passe", type="password")
@@ -82,47 +87,52 @@ if page == "Profil":
             cp_reg = st.text_input("Code postal")
             city_reg = st.text_input("Ville")
 
+            # --- Bouton de création de compte ---
             if st.button("Créer mon compte"):
+                # Vérification des champs obligatoires
                 if not (email_reg and pwd_reg and first_name_reg and last_name_reg and num_reg and street_reg and cp_reg and city_reg):
                     st.error("Veuillez remplir tous les champs.")
                     st.stop()
+
+                # Validation de chaque champ (regex)
+                if not re.match(r"^((?!\.)[\w\-_.]*[^.])(@\w+)(\.\w+(\.\w+)?[^.\W])$", email_reg.strip()):
+                    st.error("Email invalide.")
+                    st.stop()
+                if not re.match(r"^[0-9]{1,4}[A-Za-z]?$", num_reg.strip()):
+                    st.error("Numéro de rue invalide.")
+                    st.stop()
+                if not re.match(r"^[A-Za-zÀ-ÿ0-9'’\-\.\s]{3,}$", street_reg.strip()):
+                    st.error("Nom de rue invalide.")
+                    st.stop()
+                if not re.match(r"^[0-9]{5}$", cp_reg.strip()):
+                    st.error("Code postal invalide.")
+                    st.stop()
+                if not re.match(r"^[A-Za-zÀ-ÿ'’\-\.\s]{2,}$", city_reg.strip()):
+                    st.error("Nom de ville invalide.")
+                    st.stop()
+
+                # Construction de l’adresse complète
+                address_full = f"{num_reg.strip()} {street_reg.strip()} {cp_reg.strip()} {city_reg.strip()}"
+
+                # Données envoyées à l’API d’inscription
+                payload = {
+                    "email": email_reg,
+                    "password": pwd_reg,
+                    "first_name": first_name_reg,
+                    "last_name": last_name_reg,
+                    "address": address_full
+                }
+
+                # Appel API création de compte
+                r = requests.post(f"{API_URL}/users/register", json=payload)
+
+                if r.status_code == 200:
+                    st.success("✅ Compte créé, vous pouvez vous connecter !")
                 else:
-                    # Validation regex
-                    if not re.match(r"^((?!\.)[\w\-_.]*[^.])(@\w+)(\.\w+(\.\w+)?[^.\W])$", email_reg.strip()):
-                        st.error("email invalide.")
-                        st.stop()
-                    if not re.match(r"^[0-9]{1,4}[A-Za-z]?$", num_reg.strip()):
-                        st.error("Numéro de rue invalide.")
-                        st.stop()
-                    if not re.match(r"^[A-Za-zÀ-ÿ0-9'’\-\.\s]{3,}$", street_reg.strip()):
-                        st.error("Nom de rue invalide.")
-                        st.stop()
-                    if not re.match(r"^[0-9]{5}$", cp_reg.strip()):
-                        st.error("Code postal invalide.")
-                        st.stop()
-                    if not re.match(r"^[A-Za-zÀ-ÿ'’\-\.\s]{2,}$", city_reg.strip()):
-                        st.error("Nom de ville invalide.")
-                        st.stop()
+                    st.error(r.json().get("detail", "Erreur lors de l'inscription."))
 
-                    address_full = f"{num_reg.strip()} {street_reg.strip()} {cp_reg.strip()} {city_reg.strip()}"
-
-                    payload = {
-                        "email": email_reg,
-                        "password": pwd_reg,
-                        "first_name": first_name_reg,
-                        "last_name": last_name_reg,
-                        "address": address_full
-                    }
-
-                    r = requests.post(f"{API_URL}/users/register", json=payload)
-
-                    if r.status_code == 200:
-                        st.success("✅ Compte créé, vous pouvez vous connecter !")
-                    else:
-                        st.error(r.json().get("detail", "Erreur lors de l'inscription."))
-
+    # --- SECTION PROFIL UTILISATEUR CONNECTÉ ---
     else:
-        # ✅ Modification des infos du user connecté
         user = st.session_state["users"]
 
         st.write(f"**Email :** {user['email']}")
@@ -131,13 +141,14 @@ if page == "Profil":
 
         st.markdown("### ✏️ Modifier mes informations")
 
-        # Découper l’adresse existante
+        # --- Pré-remplissage des champs d’adresse ---
         parts = user["address"].split(" ")
         num_init = parts[0]
         cp_init = parts[-2]
         city_init = " ".join(parts[-1:])
         street_init = " ".join(parts[1:-2])
 
+        # --- Formulaire de mise à jour du profil ---
         first_name = st.text_input("Prénom", value=user["first_name"])
         last_name = st.text_input("Nom", value=user["last_name"])
         num = st.text_input("Numéro", value=num_init)
@@ -146,9 +157,12 @@ if page == "Profil":
         city = st.text_input("Ville", value=city_init)
 
         if not (first_name and last_name and num and street and cp and city):
-                    st.error("Veuillez remplir tous les champs.")
-                    st.stop()
+            st.error("Veuillez remplir tous les champs.")
+            st.stop()
+
+        # --- Bouton mise à jour du profil ---
         if st.button("💾 Mettre à jour le profil"):
+            # Vérification des formats
             if not re.match(r"^[0-9]{1,4}[A-Za-z]?$", num.strip()):
                 st.error("Numéro invalide.")
                 st.stop()
@@ -162,13 +176,9 @@ if page == "Profil":
                 st.error("Ville invalide.")
                 st.stop()
 
+            # Envoi de la mise à jour à l’API
             address_full = f"{num.strip()} {street.strip()} {cp.strip()} {city.strip()}"
-
-            data = {
-                "first_name": first_name,
-                "last_name": last_name,
-                "address": address_full
-            }
+            data = {"first_name": first_name, "last_name": last_name, "address": address_full}
 
             r = requests.put(f"{API_URL}/users/{user['id']}", json=data)
             if r.status_code == 200:
@@ -179,83 +189,133 @@ if page == "Profil":
                 st.error(r.json().get("detail", "Erreur lors de la mise à jour."))
 
         st.divider()
+
+        # --- Bouton déconnexion ---
         if st.button("Se déconnecter"):
             requests.delete(f"{API_URL}/users/logout", params={"token": st.session_state['token']})
             st.session_state.update({"token": None, "user_id": None, "users": None})
             st.success("Déconnexion réussie 👋")
             st.rerun()
 
-# ------------------------------------------------------
-#  PAGE : ACCUEIL
-# ------------------------------------------------------
+
+# ======================================================
+#  PAGE : ACCUEIL — Liste des produits et ajout au panier
+# ======================================================
 elif page == "Accueil":
+    # --- Message d’accueil ---
     st.write("Bienvenue sur le site de la boutique !")
     st.subheader("🛒 Produits disponibles")
+
     try:
+        # --- Récupération de la liste des produits via l’API ---
         resp = requests.get(f"{API_URL}/products")
+
+        # Vérifie si la requête s’est bien passée
         if resp.status_code == 200:
-            produits = resp.json()
+            produits = resp.json()  # Récupération de la réponse JSON contenant les produits
+
+            # --- Boucle d’affichage de chaque produit ---
             for p in produits:
+                # On crée deux colonnes : infos produit à gauche, bouton/quantité à droite
                 col1, col2 = st.columns([3, 1])
+
+                # --- Colonne gauche : description du produit ---
                 with col1:
-                    st.markdown(f"### {p['name']}")
-                    st.write(p['description'])
-                    st.write(f"Prix : {p['price_cents']/100:.2f} € | Stock : {p['stock_qty']}")
+                    st.markdown(f"### {p['name']}")  # Nom du produit
+                    st.write(p['description'])       # Description
+                    st.write(f"Prix : {p['price_cents']/100:.2f} € | Stock : {p['stock_qty']}")  # Prix + stock
+
+                # --- Colonne droite : quantité + bouton d’ajout ---
                 with col2:
-                    qty = st.number_input(f"Quantité pour {p['name']}", min_value=1, max_value=p['stock_qty'], key=p['id'])
+                    # Sélecteur de quantité (ne peut pas dépasser le stock disponible)
+                    qty = st.number_input(
+                        f"Quantité pour {p['name']}",
+                        min_value=1,
+                        max_value=p['stock_qty'],
+                        key=p['id']
+                    )
+
+                    # --- Bouton “Ajouter au panier” ---
                     if st.button(f"Ajouter au panier - {p['name']}", key="btn_" + p['id']):
+                        # Vérifie que l’utilisateur est connecté
                         if not st.session_state["user_id"]:
                             st.warning("Connectez-vous pour ajouter au panier.")
                         else:
-                            payload = {"product_id": p['id'], "quantity": int(qty)}
+                            # Préparation des données à envoyer à l’API
+                            payload = {
+                                "product_id": p['id'],
+                                "quantity": int(qty)
+                            }
+
+                            # --- Appel API pour ajouter un article au panier ---
                             r = requests.post(f"{API_URL}/cart/{st.session_state['user_id']}/add", json=payload)
+
+                            # Vérification du retour de l’API
                             if r.status_code == 200:
                                 st.success("Produit ajouté au panier 🛒")
                             else:
                                 st.error(r.json().get("detail", "Erreur lors de l'ajout."))
+
+        # --- Erreur API (produits non récupérés) ---
         else:
             st.error("Erreur de chargement des produits.")
+
+    # --- Gestion des erreurs réseau ou API injoignable ---
     except Exception as e:
         st.error(f"API non disponible: {e}")
 
-# ------------------------------------------------------
-#  PAGE : PANIER
-# ------------------------------------------------------
+# ======================================================
+#  PAGE : PANIER — Consultation, modification et commande
+# ======================================================
 elif page == "Panier":
     st.subheader("🧺 Votre panier")
+
+    # --- Vérification de la connexion utilisateur ---
     if not st.session_state["user_id"]:
         st.warning("Connectez-vous d'abord.")
     else:
         user_id = st.session_state["user_id"]
+
         try:
-            # --- Récupération du panier ---
+            # --- Récupération du panier depuis l’API ---
             resp = requests.get(f"{API_URL}/cart/{user_id}")
+
+            # Si l’API ne renvoie pas 200, on affiche une erreur
             if resp.status_code != 200:
                 st.error(f"Erreur API ({resp.status_code})")
             else:
                 panier = resp.json()
 
-                # Vérifie le format et convertit si besoin
+                # --- Vérification du format de la réponse ---
+                # On s’assure que le panier contient bien une clé "items"
                 if isinstance(panier, dict) and "items" in panier:
                     items = panier["items"]
-                    if isinstance(items, dict):  # API renvoie souvent un dict {id: {product_id, qty}}
+                    # Si items est un dictionnaire, on le convertit en liste
+                    if isinstance(items, dict):
                         items = list(items.values())
                 else:
                     st.warning("Panier vide ou format inattendu.")
                     st.stop()
 
+                # --- Cas où le panier est vide ---
                 if not items:
                     st.info("Votre panier est vide.")
                 else:
+                    # --- Boucle d’affichage de chaque article dans le panier ---
                     for item in items:
                         col1, col2, col3 = st.columns([3, 1, 1])
+
+                        # --- Colonne 1 : Informations sur le produit ---
                         with col1:
+                            # Récupération des informations du produit depuis l’API
                             resp = requests.get(f"{API_URL}/products/{item['product_id']}")
                             if resp.status_code != 200:
                                 st.error(f"Erreur API ({resp.status_code})")
                             else:
                                 produit = resp.json()
                                 st.write(f"🛍️ Produit: `{produit['name']}` | Qté: {item['quantity']}")
+
+                        # --- Colonne 2 : Sélection de la quantité à retirer ---
                         with col2:
                             max_qty = max(1, item['quantity'])
                             qty_remove = st.number_input(
@@ -265,9 +325,17 @@ elif page == "Panier":
                                 value=1,
                                 key=f"qty_rm_{item['product_id']}"
                             )
+
+                        # --- Colonne 3 : Bouton de suppression d’un article ---
                         with col3:
                             if st.button("❌ Retirer", key=f"rm_{item['product_id']}"):
-                                data = {"product_id": item["product_id"], "quantity": qty_remove}
+                                # Prépare les données pour l’API de suppression
+                                data = {
+                                    "product_id": item["product_id"],
+                                    "quantity": qty_remove
+                                }
+
+                                # --- Appel API pour retirer un article ---
                                 r = requests.delete(f"{API_URL}/cart/{user_id}/remove", json=data)
                                 if r.status_code == 200:
                                     st.success("Article supprimé du panier.")
@@ -275,21 +343,21 @@ elif page == "Panier":
                                 else:
                                     st.error(r.json().get("detail", "Erreur lors de la suppression."))
 
-                    # --- Total du panier ---
+                    # --- Affichage du total du panier ---
                     total_resp = requests.get(f"{API_URL}/cart/{user_id}/total")
                     if total_resp.status_code == 200:
                         total_json = total_resp.json()
                         if isinstance(total_json, dict) and "total_cents" in total_json:
                             st.write(f"**Total: {total_json['total_cents']/100:.2f} €**")
 
-                    # --- Vider le panier entièrement ---
+                    # --- Bouton : Vider tout le panier ---
                     if st.button("🗑️ Vider tout le panier"):
                         r = requests.delete(f"{API_URL}/cart/{user_id}/clear")
                         if r.status_code == 200:
                             st.success("Panier vidé.")
                             st.rerun()
 
-                    # --- Passer la commande ---
+                    # --- Bouton : Passer à la commande (checkout) ---
                     if st.button("✅ Passer la commande"):
                         r = requests.post(f"{API_URL}/orders/checkout/{user_id}")
                         if r.status_code == 200:
@@ -297,29 +365,39 @@ elif page == "Panier":
                             st.rerun()
                         else:
                             st.error(r.json().get("detail", "Erreur lors du checkout."))
+
+        # --- Gestion des erreurs de communication avec l’API ---
         except Exception as e:
             st.error(f"API non disponible: {e}")
 
-
-# ------------------------------------------------------
-#  PAGE : COMMANDES
-# ------------------------------------------------------
+# ======================================================
+#  PAGE : COMMANDES — Suivi, paiement et support client
+# ======================================================
 elif page == "Commandes":
     st.subheader("📦 Vos commandes")
+
+    # --- Vérifie que l'utilisateur est connecté ---
     if not st.session_state["user_id"]:
         st.warning("Connectez-vous d'abord.")
     else:
         user_id = st.session_state["user_id"]
+
         try:
+            # --- Récupération des commandes de l'utilisateur via l'API ---
             resp = requests.get(f"{API_URL}/orders/{user_id}")
+
             if resp.status_code == 200:
                 commandes = resp.json()
+
+                # Trie les commandes par date de création (plus récentes en premier)
                 commandes = sorted(commandes, key=lambda c: c.get("created_at", 0), reverse=True)
+
+                # --- Si des commandes existent ---
                 if commandes:
                     for cmd in commandes:
                         st.write(f"### Commande {cmd['id']}")
 
-                        # --- Décodage du statut (car API renvoie des entiers) ---
+                        # --- Traduction du statut numérique en texte lisible ---
                         status_raw = cmd.get("status")
                         status_map = {
                             1: "CREE",
@@ -333,7 +411,7 @@ elif page == "Commandes":
                         status_value = status_map.get(status_raw, str(status_raw))
                         st.write(f"**Statut :** {status_value}")
 
-                        # --- Affichage des items de la commande ---
+                        # --- Liste des articles contenus dans la commande ---
                         if "items" in cmd:
                             total = 0
                             for item in cmd["items"]:
@@ -342,14 +420,18 @@ elif page == "Commandes":
                                 st.markdown(f"- 🛒 `{item['name']}` × {item['quantity']} – {line_total:.2f} €")
                             st.write(f"**💰 Total : {total:.2f} €**")
 
-                        # --- Formulaire de paiement et annulation pour commandes CREE/VALIDEE ---
+                        # ------------------------------------------------------
+                        #  OPTIONS DISPONIBLES : Paiement & Annulation
+                        # ------------------------------------------------------
                         if status_value in ["CREE", "VALIDEE"]:
                             col1, col2 = st.columns(2)
 
-                            # --------- Colonne 1 : Paiement ---------
+                            # --- Colonne gauche : Paiement de la commande ---
                             with col1:
                                 with st.expander("💳 Payer cette commande"):
                                     st.info("Entrez vos informations de carte pour effectuer le paiement.")
+
+                                    # Champs de paiement
                                     card_number = st.text_input("Numéro de carte (16 chiffres)", key=f"card_{cmd['id']}")
                                     exp_month = st.selectbox(
                                         "Mois d'expiration (MM)",
@@ -366,17 +448,19 @@ elif page == "Commandes":
 
                                     cvc = st.text_input("CVC (3 chiffres)", type="password", key=f"cvc_{cmd['id']}")
 
+                                    # --- Bouton de validation du paiement ---
                                     if st.button(f"💰 Confirmer le paiement ({cmd['id']})", key=f"pay_{cmd['id']}"):
                                         now = datetime.datetime.now()
                                         current_year = now.year
                                         current_month = now.month
 
-                                        # Vérifications des champs
+                                        # Vérification basique des champs carte bancaire
                                         if not card_number or not cvc or len(card_number) < 12 or len(cvc) != 3:
                                             st.warning("Veuillez saisir des informations de carte valides.")
                                         elif int(exp_year) < current_year or (int(exp_year) == current_year and int(exp_month) < current_month):
                                             st.error("❌ Cette carte est expirée. Veuillez utiliser une autre carte.")
                                         else:
+                                            # Préparation des données pour le paiement
                                             pay = {
                                                 "order_id": cmd["id"],
                                                 "card_number": card_number.strip(),
@@ -384,47 +468,54 @@ elif page == "Commandes":
                                                 "exp_year": int(exp_year),
                                                 "cvc": cvc.strip()
                                             }
+
+                                            # --- Appel API de paiement ---
                                             r = requests.post(f"{API_URL}/orders/pay", json=pay)
                                             if r.status_code == 200:
                                                 st.session_state["just_paid"] = cmd["id"]
                                                 st.success("Paiement réussi 💳")
                                                 st.rerun()
-
                                             else:
-                                                st.error(r.json().get("detail", "Erreur de paiement"))
+                                                st.error(r.json().get("detail", "Erreur de paiement."))
 
-                            # --------- Colonne 2 : Annulation ---------
+                            # --- Colonne droite : Annulation de commande ---
                             with col2:
                                 with st.expander("❌ Annuler cette commande"):
                                     st.warning("Cette action est irréversible. La commande sera annulée et les stocks remis à jour.")
+
                                     confirm_key = f"confirm_cancel_{cmd['id']}"
                                     if confirm_key not in st.session_state:
                                         st.session_state[confirm_key] = False
 
-                                    # 1️⃣ Étape 1 : Clic sur "Annuler"
+                                    # Bouton pour initier la confirmation d'annulation
                                     if st.button(f"🗑️ Annuler la commande ({cmd['id']})", key=f"cancel_{cmd['id']}"):
                                         st.session_state[confirm_key] = True
 
-                                    # 2️⃣ Étape 2 : Si l'utilisateur a cliqué, afficher la confirmation
+                                    # --- Double confirmation avant annulation ---
                                     if st.session_state[confirm_key]:
                                         st.error("⚠️ Voulez-vous vraiment annuler cette commande ?")
                                         col_c1, col_c2 = st.columns(2)
+
                                         with col_c1:
                                             if st.button("✅ Oui, annuler", key=f"confirm_yes_{cmd['id']}"):
                                                 cancel_url = f"{API_URL}/orders/cancel"
                                                 params = {"user_id": user_id, "order_id": cmd["id"]}
                                                 r = requests.delete(cancel_url, params=params)
+
                                                 if r.status_code == 200:
                                                     st.success("Commande annulée ❌")
                                                     st.session_state[confirm_key] = False
                                                     st.rerun()
                                                 else:
                                                     st.error(r.json().get("detail", "Erreur lors de l'annulation."))
+
                                         with col_c2:
                                             if st.button("❌ Non, garder", key=f"confirm_no_{cmd['id']}"):
                                                 st.session_state[confirm_key] = False
 
-                        # --- Statuts post-paiement ---
+                        # ------------------------------------------------------
+                        #  STATUTS AVANCÉS : Suivi de livraison et remboursements
+                        # ------------------------------------------------------
                         else:
                             if status_value == "PAYEE":
                                 st.success("✅ Commande payée, en attente d'expédition.")
@@ -437,11 +528,15 @@ elif page == "Commandes":
                             elif status_value == "REMBOURSEE":
                                 st.info("💸 Commande remboursée.")
 
-                        # ✅ Affichage de la facture si un paiement vient d'avoir lieu
+                        # ------------------------------------------------------
+                        #  FACTURE (Téléchargement)
+                        # ------------------------------------------------------
                         if status_value in ["PAYEE", "EXPEDIEE", "LIVREE", "REMBOURSEE"]:
                             invoice_resp = requests.get(f"{API_URL}/orders/{cmd['id']}/invoice")
                             if invoice_resp.status_code == 200:
                                 invoice = invoice_resp.json()
+
+                                # --- Bouton de téléchargement de la facture ---
                                 st.download_button(
                                     label="🧾 Télécharger la facture",
                                     data=json.dumps(invoice, indent=4),
@@ -451,27 +546,31 @@ elif page == "Commandes":
                             else:
                                 st.warning("Facture en cours de génération…")
 
-                        # ✅ Bouton support lié à une commande
+                        # ------------------------------------------------------
+                        #  SUPPORT CLIENT (ouverture de ticket)
+                        # ------------------------------------------------------
                         with st.expander("📬 Contacter le support pour cette commande"):
                             user_id = st.session_state["user_id"]
                             user_uuid = st.session_state["user_id"]
 
+                            # Objet et message du ticket
                             default_subject = f"Problème commande {cmd['id']}"
                             subject_support = st.text_input(
-                                f"Objet ticket ({cmd['id']})", 
-                                value=default_subject, 
+                                f"Objet ticket ({cmd['id']})",
+                                value=default_subject,
                                 key=f"subject_{cmd['id']}"
                             )
                             msg_support = st.text_area(
-                                "Expliquez votre problème :", 
+                                "Expliquez votre problème :",
                                 key=f"support_msg_{cmd['id']}"
                             )
 
+                            # --- Bouton pour ouvrir un ticket support ---
                             if st.button("📨 Ouvrir un ticket support", key=f"open_ticket_{cmd['id']}"):
                                 if not msg_support.strip():
                                     st.warning("Veuillez écrire un message avant d'envoyer.")
                                 else:
-                                    # 1️⃣ Création du thread lié à la commande
+                                    # Création du ticket (thread)
                                     thread_data = {
                                         "user_id": user_id,
                                         "order_id": cmd["id"],
@@ -483,7 +582,7 @@ elif page == "Commandes":
                                         thread = r_th.json()
                                         thread_id = thread["id"]
 
-                                        # 2️⃣ Ajout du premier message
+                                        # Envoi du premier message lié au ticket
                                         msg_data = {
                                             "thread_id": thread_id,
                                             "author_user_id": user_uuid,
@@ -500,6 +599,8 @@ elif page == "Commandes":
                                         st.error("Erreur lors de la création du ticket.")
 
                         st.write("---")
+
+                # --- Aucun historique de commande ---
                 else:
                     st.info("Aucune commande trouvée.")
             else:
@@ -507,54 +608,60 @@ elif page == "Commandes":
         except Exception as e:
             st.error(f"API non disponible: {e}")
 
-
-# ------------------------------------------------------
-#  PAGE : SUPPORT
-# ------------------------------------------------------
+# ======================================================
+#  PAGE : SUPPORT — Création et suivi des tickets client
+# ======================================================
 elif page == "Support":
     st.subheader("🎫 Support client")
 
+    # --- Vérifie que l'utilisateur est connecté ---
     if not st.session_state["user_id"]:
         st.warning("Connectez-vous pour accéder au support.")
     else:
         user_id = st.session_state["user_id"]
-        user_i = st.session_state["user_id"]
+        user_i = st.session_state["user_id"]  # Alias local (utilisé dans les messages)
 
-        # --- Création d'un nouveau ticket ---
+        # ------------------------------------------------------
+        #  SECTION 1 : Création d’un nouveau ticket support
+        # ------------------------------------------------------
         st.markdown("### 📬 Créer un nouveau ticket")
 
+        # --- Champs du formulaire de création de ticket ---
         subject = st.text_input("Objet du ticket")
         message = st.text_area("Décrivez votre problème :", placeholder="Expliquez votre situation ici...")
 
+        # --- Bouton pour soumettre un nouveau ticket ---
         if st.button("📨 Créer le ticket"):
+            # Vérification basique des champs requis
             if not subject.strip():
                 st.warning("Veuillez entrer un objet de ticket.")
             elif not message.strip():
                 st.warning("Veuillez écrire un message avant d’envoyer.")
             else:
                 try:
-                    # 🧩 1️⃣ Création du thread
+                    # --- Étape 1 : Création du “thread” (discussion du ticket) ---
                     payload_thread = {
-                        "user_id": user_id,
-                        "order_id": None,
+                        "user_id": user_id,   # ID de l’utilisateur qui ouvre le ticket
+                        "order_id": None,     # Aucun lien direct avec une commande (ticket général)
                         "subject": subject.strip()
                     }
+
                     thread_resp = requests.post(f"{API_URL}/threads/open", json=payload_thread)
 
                     if thread_resp.status_code == 200:
                         thread = thread_resp.json()
                         thread_id = thread["id"]
 
-                        # 🧩 2️⃣ Ajout du premier message
-
+                        # --- Étape 2 : Ajout du premier message au ticket ---
                         payload_message = {
                             "thread_id": thread_id,
                             "author_user_id": user_i,
                             "body": message.strip()
                         }
+
                         msg_resp = requests.post(f"{API_URL}/threads/post", json=payload_message)
 
-
+                        # --- Confirmation de création ---
                         if msg_resp.status_code == 200:
                             st.success("✅ Ticket créé avec succès !")
                             st.rerun()
@@ -563,87 +670,116 @@ elif page == "Support":
                     else:
                         st.error(thread_resp.json().get("detail", "Erreur lors de la création du ticket."))
 
+                # --- Gestion des erreurs de communication avec l’API ---
                 except Exception as e:
                     st.error(f"Impossible de contacter l'API : {e}")
 
+        # ------------------------------------------------------
+        #  SECTION 2 : Liste et gestion des tickets existants
+        # ------------------------------------------------------
         st.divider()
         st.markdown("### 📋 Vos tickets")
-        # --- La suite de ton code support existant (liste + messages) reste inchangée ---
 
-
-        # --- Liste des threads de l'utilisateur ---
         try:
+            # --- Récupération de tous les tickets de l'utilisateur ---
             resp = requests.get(f"{API_URL}/threads/{user_id}")
+
             if resp.status_code == 200:
                 threads = resp.json()
+
+                # --- Si l’utilisateur a déjà des tickets ouverts ---
                 if threads:
-                    # Trier du plus récent au plus ancien
+                    # Trie les tickets du plus récent au plus ancien
                     threads = sorted(threads, key=lambda t: t.get("created_at", 0), reverse=True)
 
+                    # --- Boucle d’affichage de chaque ticket ---
                     for th in threads:
+                        # Si le ticket est lié à une commande, on affiche l’ID
                         order_info = f" | Commande : {th['order_id']}" if th.get("order_id") else ""
+
+                        # --- Bloc déroulant (expander) pour chaque ticket ---
                         with st.expander(f"🎟️ {th['subject']}{order_info} {'(Fermé)' if th.get('closed') else ''}"):
 
+                            # --- Affiche la date de création du ticket ---
                             st.write(f"📅 Créé le : {datetime.datetime.fromtimestamp(th['created_at']).strftime('%d/%m/%Y %H:%M')}")
                             st.markdown("---")
 
-                            # --- Affichage des messages du thread ---
+                            # --- Boucle d’affichage de tous les messages du ticket ---
                             for msg in th['messages']:
                                 sender = "🧑 Vous" if msg["author_user_id"] == user_i else "🎧 Support"
                                 date = datetime.datetime.fromtimestamp(msg["created_at"]).strftime("%d/%m/%Y %H:%M")
                                 st.markdown(f"**{sender}** ({date}) :\n> {msg['body']}")
 
-                            # --- Envoi d’un nouveau message ---
+                            # ------------------------------------------------------
+                            #  Envoi de nouveaux messages (si le ticket est ouvert)
+                            # ------------------------------------------------------
                             if not th.get("closed", False):
                                 new_msg = st.text_area("✉️ Votre réponse :", key=f"msg_{th['id']}")
+
                                 if st.button("Envoyer", key=f"send_{th['id']}"):
                                     if not new_msg.strip():
                                         st.warning("Votre message est vide.")
                                     else:
+                                        # --- Envoi d’un nouveau message au support ---
                                         payload = {
                                             "thread_id": th["id"],
                                             "author_user_id": user_i,
                                             "body": new_msg.strip()
                                         }
+
                                         r = requests.post(f"{API_URL}/threads/post", json=payload)
+
                                         if r.status_code == 200:
                                             st.success("Message envoyé ✅")
                                             st.rerun()
                                         else:
                                             st.error(r.json().get("detail", "Erreur lors de l'envoi du message."))
+
+                            # --- Ticket fermé : lecture seule ---
                             else:
                                 st.info("🔒 Ce ticket est fermé, vous ne pouvez plus répondre.")
+
+                # --- Aucun ticket existant ---
                 else:
                     st.info("Aucun ticket trouvé.")
+
+            # --- Erreur de récupération des tickets ---
             else:
                 st.error("Erreur lors du chargement des tickets.")
+
+        # --- Erreur de communication avec le backend ---
         except Exception as e:
             st.error(f"API non disponible : {e}")
 
-# ------------------------------------------------------
-#  PAGE : ADMIN (gestion des produits)
-# ------------------------------------------------------
+# ======================================================
+#  PAGE : ADMIN — Gestion des produits, commandes et tickets
+# ======================================================
 elif page == "Admin":
     st.subheader("⚙️ Administration – Gestion des produits")
+
+    # --- Vérification des droits d’accès ---
     if not st.session_state.get("is_admin", False):
         st.warning("Accès réservé aux administrateurs.")
     else:
+        # ------------------------------------------------------
+        #  SECTION 1 : Création d’un nouveau produit
+        # ------------------------------------------------------
         st.write("Créer un nouveau produit :")
 
-        # 🧩 Champs interactifs réactifs
+        # --- Formulaire de création de produit ---
         name = st.text_input("Nom du produit")
         description = st.text_area("Description")
         price_cents = st.number_input("Prix (en centimes)", min_value=0, step=100)
         stock_qty = st.number_input("Quantité en stock", min_value=0, step=1)
 
-        # --- Comportement dynamique du statut actif ---
+        # Si stock nul, le produit ne peut pas être actif
         if stock_qty == 0:
             st.info("⚠️ Le produit ne peut pas être actif avec un stock nul.")
             active = st.checkbox("Produit actif", value=False, disabled=True)
         else:
             active = st.checkbox("Produit actif", value=True)
 
-        # --- Bouton de création (en dehors du form) ---
+        # --- Bouton de création du produit ---
         if st.button("Créer le produit"):
             if not name or not description:
                 st.warning("Veuillez remplir tous les champs.")
@@ -656,6 +792,7 @@ elif page == "Admin":
                     "active": active if stock_qty > 0 else False
                 }
 
+                # --- Appel API : création du produit ---
                 try:
                     resp = requests.post(f"{API_URL}/products", json=payload)
                     if resp.status_code == 200:
@@ -665,23 +802,31 @@ elif page == "Admin":
                         st.error(resp.json().get("detail", "Erreur lors de la création du produit."))
                 except Exception as e:
                     st.error(f"Erreur de communication avec l’API : {e}")
+
         st.write("---")
+
+        # ------------------------------------------------------
+        #  SECTION 2 : Liste et mise à jour des produits existants
+        # ------------------------------------------------------
         st.subheader("📦 Liste des produits")
 
         try:
+            # --- Récupération de tous les produits (actifs + inactifs) ---
             resp = requests.get(f"{API_URL}/products/all")
             if resp.status_code == 200:
                 all_products = resp.json()
                 if not all_products:
                     st.info("Aucun produit trouvé.")
                 else:
-
+                    # --- Affichage de chaque produit dans un expander ---
                     for prod in all_products:
                         with st.expander(f"🛍️ {prod['name']}"):
                             st.write(f"**ID :** {prod['id']}")
                             st.write(f"**Description :** {prod['description']}")
                             st.write(f"**Prix :** {prod['price_cents']/100:.2f} €")
                             st.write(f"**Statut :** {'✅ Actif' if prod['active'] else '❌ Inactif'}")
+
+                            # Champ pour modifier le stock
                             new_stock = st.number_input(
                                 f"Stock pour {prod['name']}",
                                 min_value=0,
@@ -690,7 +835,7 @@ elif page == "Admin":
                                 key=f"stock_{prod['id']}"
                             )
 
-                            # Ne peut être actif que si stock > 0
+                            # Si stock > 0, le produit peut être actif
                             can_be_active = new_stock > 0
                             new_active = st.checkbox(
                                 f"Produit actif ({prod['name']})",
@@ -699,6 +844,7 @@ elif page == "Admin":
                                 key=f"active_{prod['id']}"
                             )
 
+                            # --- Bouton pour mettre à jour le produit ---
                             if st.button(f"💾 Mettre à jour {prod['name']}", key=f"update_{prod['id']}"):
                                 updated_data = {
                                     "name": prod["name"],
@@ -717,11 +863,14 @@ elif page == "Admin":
 
             else:
                 st.error("Erreur lors du chargement des produits.")
-
         except Exception as e:
             st.error(f"API non disponible : {e}")
 
         st.write("---")
+
+        # ------------------------------------------------------
+        #  SECTION 3 : Gestion des commandes (côté administrateur)
+        # ------------------------------------------------------
         st.subheader("📦 Gestion des commandes")
 
         try:
@@ -748,14 +897,11 @@ elif page == "Admin":
                         7: "REMBOURSEE"
                     }
 
-                    # 🧩 Admin ID = le user connecté
-                    admin_id = st.session_state["user_id"]
-
                     for cmd in commandes:
                         status_text = status_map.get(cmd["status"], "Inconnu")
                         with st.expander(f"📦 Cmd {cmd['id']} — {status_text}"):
 
-                            # --- Affichage des produits achetés ---
+                            # --- Liste des articles dans la commande ---
                             if "items" in cmd:
                                 total = 0
                                 for item in cmd["items"]:
@@ -764,94 +910,127 @@ elif page == "Admin":
                                 st.write(f"💰 Total : {total:.2f} €")
                             st.write("---")
 
-                            # ✅ Actions selon le statut
+                            # --- Actions disponibles selon le statut de la commande ---
                             if status_text == "CREE":
                                 if st.button(f"✅ Valider commande {cmd['id']}", key=f"val_{cmd['id']}"):
-                                    r = requests.post(f"{API_URL}/orders/validate", params={"admin_user_id": admin_id, "order_id": cmd["id"]})
+                                    r = requests.post(
+                                        f"{API_URL}/orders/validate",
+                                        params={"admin_user_id": admin_id, "order_id": cmd["id"]}
+                                    )
                                     st.rerun()
 
                             if status_text in ["VALIDEE", "PAYEE"]:
                                 if st.button(f"🚚 Expédier commande {cmd['id']}", key=f"ship_{cmd['id']}"):
-                                    r = requests.post(f"{API_URL}/orders/ship", params={"admin_user_id": admin_id, "order_id": cmd["id"]})
+                                    r = requests.post(
+                                        f"{API_URL}/orders/ship",
+                                        params={"admin_user_id": admin_id, "order_id": cmd["id"]}
+                                    )
                                     st.rerun()
 
                             if status_text == "EXPEDIEE":
                                 if st.button(f"📬 Marquer livrée {cmd['id']}", key=f"liv_{cmd['id']}"):
-                                    r = requests.post(f"{API_URL}/orders/mark_delivered", params={"admin_user_id": admin_id, "order_id": cmd["id"]})
+                                    r = requests.post(
+                                        f"{API_URL}/orders/mark_delivered",
+                                        params={"admin_user_id": admin_id, "order_id": cmd["id"]}
+                                    )
                                     st.rerun()
 
                             if status_text in ["CREE", "VALIDEE"]:
                                 if st.button(f"❌ Annuler commande {cmd['id']}", key=f"cancel_admin_{cmd['id']}"):
-                                    r = requests.post(f"{API_URL}/orders/admin/cancel", params={"admin_user_id": admin_id, "order_id": cmd["id"], "user_id": cmd["user_id"]})
+                                    r = requests.post(
+                                        f"{API_URL}/orders/admin/cancel",
+                                        params={
+                                            "admin_user_id": admin_id,
+                                            "order_id": cmd["id"],
+                                            "user_id": cmd["user_id"]
+                                        }
+                                    )
                                     st.rerun()
 
                             if status_text in ["PAYEE", "LIVREE"]:
                                 if st.button(f"💸 Rembourser commande {cmd['id']}", key=f"refund_{cmd['id']}"):
-                                    r = requests.post(f"{API_URL}/orders/refund", params={"admin_user_id": admin_id, "order_id": cmd["id"]})
+                                    r = requests.post(
+                                        f"{API_URL}/orders/refund",
+                                        params={"admin_user_id": admin_id, "order_id": cmd["id"]}
+                                    )
                                     st.rerun()
 
-    st.markdown("## 🎫 Gestion des tickets support")
-    try:
-        resp = requests.get(f"{API_URL}/admin/threads")
-        if resp.status_code == 200:
-            threads = resp.json()
-            if threads:
-                # Trier du plus récent au plus ancien
-                threads = sorted(threads, key=lambda t: t.get("created_at", 0), reverse=True)
+        # ------------------------------------------------------
+        #  SECTION 4 : Gestion des tickets support (côté admin)
+        # ------------------------------------------------------
+        st.markdown("## 🎫 Gestion des tickets support")
 
-                for th in threads:
-                    order_info = f" | Cmd: {th['order_id']}" if th.get("order_id") else ""
-                    with st.expander(f"🎟️ {th['subject']}{order_info} — Utilisateur: {th['user_id']} {'(Fermé)' if th['closed'] else ''}"):
+        try:
+            resp = requests.get(f"{API_URL}/admin/threads")
 
-                        st.write(f"📅 Créé le : {datetime.datetime.fromtimestamp(th['created_at']).strftime('%d/%m/%Y %H:%M')}")
-                        st.markdown("---")
+            if resp.status_code == 200:
+                threads = resp.json()
+                if threads:
+                    # Tri des tickets par date (plus récents en haut)
+                    threads = sorted(threads, key=lambda t: t.get("created_at", 0), reverse=True)
 
-                        # --- Affichage des messages ---
-                        for msg in th["messages"]:
-                            sender = "🎧 Support" if msg["author_user_id"] is None else f"🧑 {msg['author_user_id']}"
-                            date = datetime.datetime.fromtimestamp(msg["created_at"]).strftime("%d/%m/%Y %H:%M")
-                            st.markdown(f"**{sender}** ({date}) :\n> {msg['body']}")
+                    for th in threads:
+                        order_info = f" | Cmd: {th['order_id']}" if th.get("order_id") else ""
+                        with st.expander(f"🎟️ {th['subject']}{order_info} — Utilisateur: {th['user_id']} {'(Fermé)' if th['closed'] else ''}"):
 
-                        st.markdown("---")
+                            st.write(f"📅 Créé le : {datetime.datetime.fromtimestamp(th['created_at']).strftime('%d/%m/%Y %H:%M')}")
+                            st.markdown("---")
 
-                        if not th["closed"]:
-                            reply = st.text_area("✉️ Réponse de l'admin :", key=f"reply_{th['id']}")
-                            col1, col2 = st.columns([1, 1])
+                            # --- Historique des messages du ticket ---
+                            for msg in th["messages"]:
+                                sender = "🎧 Support" if msg["author_user_id"] is None else f"🧑 {msg['author_user_id']}"
+                                date = datetime.datetime.fromtimestamp(msg["created_at"]).strftime("%d/%m/%Y %H:%M")
+                                st.markdown(f"**{sender}** ({date}) :\n> {msg['body']}")
 
-                            with col1:
-                                if st.button("📨 Envoyer", key=f"reply_btn_{th['id']}"):
-                                    if not reply.strip():
-                                        st.warning("Message vide.")
-                                    else:
-                                        payload = {
-                                            "thread_id": th["id"],
-                                            "author_user_id": requests.get(f"{API_URL}/users_id/{st.session_state["user_id"]}").json()['id'],
-                                            "body": reply.strip()
-                                        }
+                            st.markdown("---")
 
-                                        r = requests.post(f"{API_URL}/threads/post", json=payload)
+                            # --- Si le ticket est encore ouvert ---
+                            if not th["closed"]:
+                                reply = st.text_area("✉️ Réponse de l'admin :", key=f"reply_{th['id']}")
+                                col1, col2 = st.columns([1, 1])
+
+                                # --- Envoi d'une réponse admin ---
+                                with col1:
+                                    if st.button("📨 Envoyer", key=f"reply_btn_{th['id']}"):
+                                        if not reply.strip():
+                                            st.warning("Message vide.")
+                                        else:
+                                            payload = {
+                                                "thread_id": th["id"],
+                                                "author_user_id": requests.get(
+                                                    f"{API_URL}/users_id/{st.session_state['user_id']}"
+                                                ).json()['id'],
+                                                "body": reply.strip()
+                                            }
+
+                                            r = requests.post(f"{API_URL}/threads/post", json=payload)
+                                            if r.status_code == 200:
+                                                st.success("Réponse envoyée ✅")
+                                                st.rerun()
+                                            else:
+                                                st.error(r.json().get("detail", "Erreur lors de l’envoi."))
+
+                                # --- Fermeture du ticket ---
+                                with col2:
+                                    if st.button("🔒 Fermer le ticket", key=f"close_{th['id']}"):
+                                        admin_id = requests.get(
+                                            f"{API_URL}/users_id/{st.session_state['user_id']}"
+                                        ).json()['id']
+
+                                        r = requests.post(
+                                            f"{API_URL}/threads/close?thread_id={th['id']}&admin_user_id={admin_id}"
+                                        )
+
                                         if r.status_code == 200:
-                                            st.success("Réponse envoyée ✅")
+                                            st.info("Ticket fermé 🏁")
                                             st.rerun()
                                         else:
-                                            st.error(r.json().get("detail", "Erreur lors de l’envoi."))
-
-                            with col2:
-                                if st.button("🔒 Fermer le ticket", key=f"close_{th['id']}"):
-                                    admin_id = requests.get(f"{API_URL}/users_id/{st.session_state['user_id']}").json()['id']
-                                    r = requests.post(f"{API_URL}/threads/close?thread_id={th['id']}&admin_user_id={admin_id}")
-
-                                    
-                                    if r.status_code == 200:
-                                        st.info("Ticket fermé 🏁")
-                                        st.rerun()
-                                    else:
-                                        st.error(r.json().get("detail", "Erreur lors de la fermeture."))
-                        else:
-                            st.info("🔒 Ticket fermé.")
+                                            st.error(r.json().get("detail", "Erreur lors de la fermeture."))
+                            else:
+                                st.info("🔒 Ticket fermé.")
+                else:
+                    st.info("Aucun ticket à afficher.")
             else:
-                st.info("Aucun ticket à afficher.")
-        else:
-            st.error("Erreur lors du chargement des tickets (admin).")
-    except Exception as e:
-        st.error(f"API non disponible : {e}")
+                st.error("Erreur lors du chargement des tickets (admin).")
+        except Exception as e:
+            st.error(f"API non disponible : {e}")
