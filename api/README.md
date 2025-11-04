@@ -29,7 +29,7 @@ fastapi dev api-shop.py
 pdoc ./shop.py
 ```
 
-ouvre une feunetre dans le navigateur avec la documentation
+ouvre une fenêtre dans le navigateur avec la documentation
 
 ### pour avoir un rapport sur la couverture de test:
 
