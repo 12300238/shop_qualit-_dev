@@ -1,9 +1,10 @@
 {
   "users": [
-    {"id": "u1", "email": "alice@test.com", "password": "123", "first_name": "Alice", "last_name": "Test", "address": "1 rue", "is_admin": false},
-    {"id": "u2", "email": "bob@test.com", "password": "456", "first_name": "Bob", "last_name": "Test", "address": "2 rue", "is_admin": true},
-    {"id": "u3", "email": "carol@test.com", "password": "789", "first_name": "Carol", "last_name": "Test", "address": "3 rue", "is_admin": false}
+    {"id": "u1", "email": "alice@test.com", "password": "123", "first_name": "Alice", "last_name": "Test", "address": "1 rue 35640 Ville", "is_admin": false},
+    {"id": "u2", "email": "bob@test.com", "password": "456", "first_name": "Bob", "last_name": "Test", "address": "2 rue 35640 Ville", "is_admin": true},
+    {"id": "u3", "email": "carol@test.com", "password": "789", "first_name": "Carol", "last_name": "Test", "address": "3 rue 35640 Ville", "is_admin": false}
   ],
+  
   "products": [
     {"id": "p1", "name": "ProduitA", "description": "DescA", "price_cents": 1000, "stock_qty": 10, "active": true},
     {"id": "p2", "name": "ProduitB", "description": "DescB", "price_cents": 2000, "stock_qty": 5, "active": true},
