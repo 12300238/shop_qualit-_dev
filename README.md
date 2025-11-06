@@ -9,5 +9,5 @@ Application e-commerce avec support client intégré.
 - Docker pour déploiement
 
 👉 Détails API : /api/README.md  
-👉 Détails Front : /frontend/README.md
+👉 Détails Front : /frontend/README.md <br>
 👉 Les conteneur : /Docker
